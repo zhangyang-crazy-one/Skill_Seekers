@@ -4,8 +4,13 @@ Claude AI Adaptor
 
 Implements platform-specific handling for Claude AI (Anthropic) skills.
 Refactored from upload_skill.py and enhance_skill.py.
+
+Supports alternative API endpoints (e.g., MiniMax) via environment variables:
+- ANTHROPIC_BASE_URL: Custom API endpoint URL
+- ANTHROPIC_MODEL: Model name to use (default: claude-sonnet-4-20250514)
 """
 
+import os
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -21,12 +26,20 @@ class ClaudeAdaptor(SkillAdaptor):
     - YAML frontmatter format for SKILL.md
     - ZIP packaging with standard Claude skill structure
     - Upload to Anthropic Skills API
-    - AI enhancement using Claude API
+    - AI enhancement using Claude API (or compatible endpoints like MiniMax)
     """
 
     PLATFORM = "claude"
     PLATFORM_NAME = "Claude AI (Anthropic)"
     DEFAULT_API_ENDPOINT = "https://api.anthropic.com/v1/skills"
+
+    # Default model - can be overridden via ANTHROPIC_MODEL environment variable
+    DEFAULT_MODEL = "claude-sonnet-4-20250514"
+
+    def __init__(self, config: dict = None):
+        super().__init__(config)
+        # Support custom model for alternative API endpoints (e.g., MiniMax)
+        self.model = os.environ.get("ANTHROPIC_MODEL", self.DEFAULT_MODEL)
 
     def format_skill_md(self, skill_dir: Path, metadata: SkillMetadata) -> str:
         """
@@ -357,12 +370,20 @@ version: {metadata.version}
 
         print("\n🤖 Asking Claude to enhance SKILL.md...")
         print(f"   Input: {len(prompt):,} characters")
+        print(f"   Model: {self.model}")
 
         try:
-            client = anthropic.Anthropic(api_key=api_key)
+            # Support custom base URL for alternative API endpoints (e.g., MiniMax)
+            base_url = os.environ.get("ANTHROPIC_BASE_URL")
+            client_kwargs = {"api_key": api_key}
+            if base_url:
+                client_kwargs["base_url"] = base_url
+                print(f"   Base URL: {base_url}")
+
+            client = anthropic.Anthropic(**client_kwargs)
 
             message = client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model=self.model,
                 max_tokens=4096,
                 temperature=0.3,
                 messages=[{"role": "user", "content": prompt}],

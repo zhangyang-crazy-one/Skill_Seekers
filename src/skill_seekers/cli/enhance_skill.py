@@ -59,6 +59,10 @@ class SkillEnhancer:
 
         self.client = anthropic.Anthropic(**client_kwargs)
 
+        # Support custom model for alternative API endpoints (e.g., MiniMax)
+        self.model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
+        print(f"ℹ️  Using model: {self.model}")
+
     def read_current_skill_md(self):
         """Read existing SKILL.md"""
         if not self.skill_md_path.exists():
@@ -76,7 +80,7 @@ class SkillEnhancer:
 
         try:
             message = self.client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model=self.model,
                 max_tokens=4096,
                 temperature=0.3,
                 messages=[{"role": "user", "content": prompt}],
