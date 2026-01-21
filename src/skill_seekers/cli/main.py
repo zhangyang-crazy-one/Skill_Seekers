@@ -145,6 +145,26 @@ For more information: https://github.com/yusufkaraaslan/Skill_Seekers
     pdf_parser.add_argument("--name", help="Skill name")
     pdf_parser.add_argument("--description", help="Skill description")
     pdf_parser.add_argument("--from-json", help="Build from extracted JSON")
+    # OCR options (NEW - PaddleOCR support)
+    pdf_parser.add_argument(
+        "--ocr",
+        action="store_true",
+        help="Use OCR for scanned PDFs (NEW: supports PaddleOCR & Tesseract)",
+    )
+    pdf_parser.add_argument(
+        "--ocr-engine",
+        type=str,
+        default="auto",
+        choices=["auto", "paddle", "tesseract"],
+        help="OCR engine: 'auto' (PaddleOCR first, best for Chinese), 'paddle' (PaddleOCR only), 'tesseract' (fallback) (default: auto)",
+    )
+    pdf_parser.add_argument(
+        "--paddle-lang",
+        type=str,
+        default="ch",
+        choices=["ch", "en", "chinese_cht", "korean", "japan", "latin"],
+        help="PaddleOCR language: 'ch'=Chinese, 'en'=English, 'chinese_cht'=Traditional Chinese (default: ch)",
+    )
 
     # === unified subcommand ===
     unified_parser = subparsers.add_parser(
@@ -398,6 +418,13 @@ def main(argv: list[str] | None = None) -> int:
                 sys.argv.extend(["--description", args.description])
             if args.from_json:
                 sys.argv.extend(["--from-json", args.from_json])
+            # OCR options (NEW - PaddleOCR support)
+            if args.ocr:
+                sys.argv.append("--ocr")
+            if args.ocr_engine:
+                sys.argv.extend(["--ocr-engine", args.ocr_engine])
+            if args.paddle_lang:
+                sys.argv.extend(["--paddle-lang", args.paddle_lang])
             return pdf_main() or 0
 
         elif args.command == "unified":

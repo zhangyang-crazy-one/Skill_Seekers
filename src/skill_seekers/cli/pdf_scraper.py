@@ -99,6 +99,10 @@ class PDFToSkillConverter:
             extract_images=self.extract_options.get("extract_images", True),
             image_dir=f"{self.skill_dir}/assets/images",
             min_image_size=self.extract_options.get("min_image_size", 100),
+            # OCR options (NEW - PaddleOCR support)
+            use_ocr=self.extract_options.get("use_ocr", False),
+            ocr_engine=self.extract_options.get("ocr_engine", "auto"),
+            paddle_lang=self.extract_options.get("paddle_lang", "ch"),
         )
 
         # Extract
@@ -545,6 +549,23 @@ def main():
     parser = argparse.ArgumentParser(
         description="Convert PDF documentation to Claude skill",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Basic PDF extraction
+  python3 pdf_scraper.py --pdf manual.pdf --name myskill
+
+  # With PaddleOCR (recommended for Chinese)
+  python3 pdf_scraper.py --pdf chinese_doc.pdf --name myskill --ocr --ocr-engine paddle --paddle-lang ch
+
+  # Auto-select OCR engine (default: PaddleOCR first, then Tesseract)
+  python3 pdf_scraper.py --pdf doc.pdf --name myskill --ocr --ocr-engine auto
+
+  # Use Tesseract as fallback
+  python3 pdf_scraper.py --pdf doc.pdf --name myskill --ocr --ocr-engine tesseract
+
+  # From config file
+  python3 pdf_scraper.py --config configs/manual_pdf.json
+        """,
     )
 
     parser.add_argument("--config", help="PDF config JSON file")
@@ -552,6 +573,27 @@ def main():
     parser.add_argument("--name", help="Skill name (with --pdf)")
     parser.add_argument("--from-json", help="Build skill from extracted JSON")
     parser.add_argument("--description", help="Skill description")
+
+    # OCR options (NEW - PaddleOCR support)
+    parser.add_argument(
+        "--ocr",
+        action="store_true",
+        help="Use OCR for scanned PDFs (NEW: supports PaddleOCR & Tesseract)",
+    )
+    parser.add_argument(
+        "--ocr-engine",
+        type=str,
+        default="auto",
+        choices=["auto", "paddle", "tesseract"],
+        help="OCR engine: 'auto' (PaddleOCR first, best for Chinese), 'paddle' (PaddleOCR only), 'tesseract' (fallback) (default: auto)",
+    )
+    parser.add_argument(
+        "--paddle-lang",
+        type=str,
+        default="ch",
+        choices=["ch", "en", "chinese_cht", "korean", "japan", "latin"],
+        help="PaddleOCR language: 'ch'=Chinese, 'en'=English, 'chinese_cht'=Traditional Chinese (default: ch)",
+    )
 
     args = parser.parse_args()
 
@@ -587,6 +629,10 @@ def main():
                 "min_quality": 5.0,
                 "extract_images": True,
                 "min_image_size": 100,
+                # OCR options (NEW - PaddleOCR support)
+                "use_ocr": args.ocr or False,
+                "ocr_engine": args.ocr_engine,
+                "paddle_lang": args.paddle_lang,
             },
         }
 

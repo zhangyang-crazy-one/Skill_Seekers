@@ -158,7 +158,6 @@ class PDFExtractor:
             self._paddle_ocr = PaddleOCR(
                 use_angle_cls=True, 
                 lang=self.paddle_lang,
-                show_log=False  # Suppress verbose output
             )
         return self._paddle_ocr
 
@@ -193,6 +192,10 @@ class PDFExtractor:
             pix = page.get_pixmap()
             img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
             
+            # Convert PIL Image to numpy array for PaddleOCR
+            import numpy as np
+            img_array = np.array(img)
+            
             # OCR engine selection (NEW)
             engines_to_try = []
             
@@ -221,8 +224,8 @@ class PDFExtractor:
             for engine_name, engine in engines_to_try:
                 try:
                     if engine_name == "paddle":
-                        # Use PaddleOCR (NEW)
-                        result = engine.ocr(img, cls=True)
+                        # Use PaddleOCR (NEW) - requires numpy array
+                        result = engine.ocr(img_array)
                         if result and result[0]:
                             ocr_text = '\n'.join([line[1][0] for line in result[0]])
                             self.log(f"   PaddleOCR extracted {len(ocr_text)} chars (was {len(text)})")
@@ -868,7 +871,12 @@ class PDFExtractor:
         text = self.extract_text_with_ocr(page) if self.use_ocr else page.get_text("text")
 
         # Extract markdown (better structure preservation)
-        markdown = page.get_text("markdown")
+        try:
+            markdown = page.get_text("markdown")
+        except (AttributeError, AssertionError):
+            # Markdown format not available in older PyMuPDF versions
+            # Fall back to plain text
+            markdown = text
 
         # Extract tables (Priority 2)
         tables = self.extract_tables_from_page(page)
