@@ -126,6 +126,20 @@ $env:ANTHROPIC_AUTH_TOKEN="your-minimax-api-key"
 $env:ANTHROPIC_MODEL="MiniMax-M2.1"
 ```
 
+### 4. 验证配置
+
+```bash
+# 验证环境变量
+echo $ANTHROPIC_BASE_URL
+echo $ANTHROPIC_AUTH_TOKEN
+echo $ANTHROPIC_MODEL
+
+# 预期输出：
+# https://api.minimax.chat/v1/chat/completions
+# your-minimax-api-key
+# MiniMax-M2.1
+```
+
 ### 4. 在 Skill Seeker 中使用
 
 ```bash
