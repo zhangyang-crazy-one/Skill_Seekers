@@ -10,7 +10,6 @@ Tests cover:
 - Caching
 """
 
-import io
 import shutil
 import sys
 import tempfile
