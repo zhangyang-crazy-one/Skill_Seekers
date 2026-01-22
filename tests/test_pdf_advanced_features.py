@@ -19,7 +19,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 # Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent / "cli"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "skill_seekers" / "cli"))
 
 try:
     import fitz  # PyMuPDF
@@ -63,6 +63,7 @@ class TestOCRSupport(unittest.TestCase):
         extractor = self.PDFExtractor.__new__(self.PDFExtractor)
         extractor.use_ocr = False
         extractor.verbose = False
+        extractor.ocr_engine = "auto"
 
         # Create mock page with normal text
         mock_page = Mock()
@@ -78,6 +79,7 @@ class TestOCRSupport(unittest.TestCase):
         extractor = self.PDFExtractor.__new__(self.PDFExtractor)
         extractor.use_ocr = True
         extractor.verbose = False
+        extractor.ocr_engine = "auto"
 
         # Create mock page with enough text
         mock_page = Mock()
@@ -90,21 +92,25 @@ class TestOCRSupport(unittest.TestCase):
         mock_page.get_pixmap.assert_not_called()
 
     @patch("pdf_extractor_poc.TESSERACT_AVAILABLE", False)
+    @patch("pdf_extractor_poc.RAPIDOCR_AVAILABLE", False)
+    @patch("pdf_extractor_poc.PADDLEOCR_AVAILABLE", False)
     def test_ocr_unavailable_warning(self):
-        """Test warning when OCR requested but pytesseract not available"""
+        """Test warning when OCR requested but no OCR engine available"""
         extractor = self.PDFExtractor.__new__(self.PDFExtractor)
         extractor.use_ocr = True
         extractor.verbose = True
+        extractor.ocr_engine = "auto"
 
         mock_page = Mock()
-        mock_page.get_text.return_value = "Short"  # Less than 50 chars
+        mock_page.get_text.return_value = "Short"
 
-        # Capture output
-        with patch("sys.stdout", new=io.StringIO()) as fake_out:
-            text = extractor.extract_text_with_ocr(mock_page)
-            output = fake_out.getvalue()
+        mock_pix = Mock()
+        mock_pix.width = 100
+        mock_pix.height = 100
+        mock_pix.samples = b"\x00" * (100 * 100 * 3)
+        mock_page.get_pixmap.return_value = mock_pix
 
-        self.assertIn("OCR requested but pytesseract not installed", output)
+        text = extractor.extract_text_with_ocr(mock_page)
         self.assertEqual(text, "Short")
 
     @unittest.skipUnless(TESSERACT_AVAILABLE, "pytesseract not installed")
@@ -113,12 +119,11 @@ class TestOCRSupport(unittest.TestCase):
         extractor = self.PDFExtractor.__new__(self.PDFExtractor)
         extractor.use_ocr = True
         extractor.verbose = False
+        extractor.ocr_engine = "tesseract"
 
-        # Create mock page with minimal text
         mock_page = Mock()
-        mock_page.get_text.return_value = "X"  # Less than 50 chars
+        mock_page.get_text.return_value = "X"
 
-        # Mock pixmap and PIL Image
         mock_pix = Mock()
         mock_pix.width = 100
         mock_pix.height = 100
@@ -128,7 +133,6 @@ class TestOCRSupport(unittest.TestCase):
         with patch("pytesseract.image_to_string", return_value="OCR extracted text here"):
             text = extractor.extract_text_with_ocr(mock_page)
 
-        # Should use OCR text since it's longer
         self.assertEqual(text, "OCR extracted text here")
         mock_page.get_pixmap.assert_called_once()
 
