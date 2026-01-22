@@ -178,8 +178,8 @@ class PDFExtractor:
         if self._paddle_ocr is None:
             import os
 
-            os.environ["FLAGS_use_mkldnn"] = "0"
-            os.environ["FLAGS_prim_enable_dynamic"] = "0"
+            os.environ["FLAGS_USE_MKLDNN"] = "0"
+            os.environ["FLAGS_PRIM_ENABLE_DYNAMIC"] = "0"
 
             self._paddle_ocr = PaddleOCR(
                 use_angle_cls=True,
