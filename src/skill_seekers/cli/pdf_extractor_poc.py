@@ -17,7 +17,7 @@ Features:
     - Code block merging across pages (B1.3)
 
 Advanced Features (Priority 2 & 3):
-    - OCR support for scanned PDFs (NEW: supports PaddleOCR & Tesseract)
+    - OCR support for scanned PDFs (supports RapidOCR, PaddleOCR & Tesseract)
     - Password-protected PDF support (Priority 2)
     - Table extraction (Priority 2)
     - Parallel page processing (Priority 3)
@@ -38,9 +38,10 @@ Usage:
 
     # Advanced features
     python3 pdf_extractor_poc.py scanned.pdf --ocr
-    python3 pdf_extractor_poc.py scanned.pdf --ocr --ocr-engine paddle  # NEW: Use PaddleOCR (best for Chinese)
-    python3 pdf_extractor_poc.py scanned.pdf --ocr --ocr-engine tesseract  # Use Tesseract
-    python3 pdf_extractor_poc.py scanned.pdf --ocr --ocr-engine auto  # Auto-select (default)
+    python3 pdf_extractor_poc.py scanned.pdf --ocr --ocr-engine rapid  # RapidOCR (recommended, best Chinese support)
+    python3 pdf_extractor_poc.py scanned.pdf --ocr --ocr-engine paddle  # PaddleOCR (requires AVX512 CPU)
+    python3 pdf_extractor_poc.py scanned.pdf --ocr --ocr-engine tesseract  # Tesseract (fallback)
+    python3 pdf_extractor_poc.py scanned.pdf --ocr --ocr-engine auto  # Auto-select (default: RapidOCR first)
     python3 pdf_extractor_poc.py encrypted.pdf --password mypassword
     python3 pdf_extractor_poc.py input.pdf --extract-tables
     python3 pdf_extractor_poc.py large.pdf --parallel --workers 8
@@ -83,19 +84,30 @@ except ImportError:
 try:
     import pytesseract
     from PIL import Image
+
     TESSERACT_AVAILABLE = True
 except ImportError:
     TESSERACT_AVAILABLE = False
 
-# PaddleOCR (NEW - better Chinese OCR)
+# RapidOCR (RECOMMENDED - uses ONNX Runtime, no AVX512 requirement, great Chinese support)
+try:
+    from rapidocr_onnxruntime import RapidOCR
+
+    RAPIDOCR_AVAILABLE = True
+except ImportError:
+    RAPIDOCR_AVAILABLE = False
+
+# PaddleOCR (requires AVX512 CPU support - may crash on older CPUs)
 try:
     from paddleocr import PaddleOCR
+
     PADDLEOCR_AVAILABLE = True
 except ImportError:
     PADDLEOCR_AVAILABLE = False
 
 try:
     import concurrent.futures
+
     CONCURRENT_AVAILABLE = True
 except ImportError:
     CONCURRENT_AVAILABLE = False
@@ -149,14 +161,28 @@ class PDFExtractor:
         # Language detection
         self.language_detector = LanguageDetector(min_confidence=0.15)
 
-        # Initialize PaddleOCR (NEW - lazy initialization)
+        # Initialize RapidOCR (lazy initialization)
+        self._rapid_ocr = None
+
+        # Initialize PaddleOCR (lazy initialization)
         self._paddle_ocr = None
+
+    def _get_rapid_ocr(self):
+        """Lazy initialization of RapidOCR instance."""
+        if self._rapid_ocr is None:
+            self._rapid_ocr = RapidOCR()
+        return self._rapid_ocr
 
     def _get_paddle_ocr(self):
         """Lazy initialization of PaddleOCR instance (NEW)."""
         if self._paddle_ocr is None:
+            import os
+
+            os.environ["FLAGS_use_mkldnn"] = "0"
+            os.environ["FLAGS_prim_enable_dynamic"] = "0"
+
             self._paddle_ocr = PaddleOCR(
-                use_angle_cls=True, 
+                use_angle_cls=True,
                 lang=self.paddle_lang,
             )
         return self._paddle_ocr
@@ -169,12 +195,13 @@ class PDFExtractor:
     def extract_text_with_ocr(self, page):
         """
         Extract text from scanned PDF page using OCR (Priority 2).
-        Supports both PaddleOCR (NEW, better for Chinese) and Tesseract (fallback).
-        
+        Supports RapidOCR (recommended), PaddleOCR, and Tesseract.
+
         Engine selection logic:
-        - 'auto': Try PaddleOCR first, fall back to Tesseract
-        - 'paddle': Use PaddleOCR only
-        - 'tesseract': Use Tesseract only
+        - 'auto': Try RapidOCR first (best compatibility), then PaddleOCR, then Tesseract
+        - 'rapid': Use RapidOCR only (recommended for Chinese, no AVX512 requirement)
+        - 'paddle': Use PaddleOCR only (requires AVX512 CPU support)
+        - 'tesseract': Use Tesseract only (fallback)
 
         Args:
             page: PyMuPDF page object
@@ -182,29 +209,32 @@ class PDFExtractor:
         Returns:
             str: Extracted text
         """
-        # Try regular text extraction first
         text = page.get_text("text").strip()
 
-        # If page has very little text, it might be scanned
         if len(text) < 50 and self.use_ocr:
-            
-            # Convert page to image for OCR
             pix = page.get_pixmap()
             img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-            
-            # Convert PIL Image to numpy array for PaddleOCR
+
             import numpy as np
+
             img_array = np.array(img)
-            
-            # OCR engine selection (NEW)
+
             engines_to_try = []
-            
+
             if self.ocr_engine == "auto":
-                # Try PaddleOCR first (better for Chinese), then Tesseract
+                if RAPIDOCR_AVAILABLE:
+                    engines_to_try.append(("rapid", self._get_rapid_ocr()))
                 if PADDLEOCR_AVAILABLE:
                     engines_to_try.append(("paddle", self._get_paddle_ocr()))
                 if TESSERACT_AVAILABLE:
                     engines_to_try.append(("tesseract", pytesseract))
+            elif self.ocr_engine == "rapid":
+                if RAPIDOCR_AVAILABLE:
+                    engines_to_try.append(("rapid", self._get_rapid_ocr()))
+                else:
+                    self.log("⚠️  RapidOCR requested but not installed")
+                    self.log("   Install with: pip install rapidocr-onnxruntime")
+                    return text
             elif self.ocr_engine == "paddle":
                 if PADDLEOCR_AVAILABLE:
                     engines_to_try.append(("paddle", self._get_paddle_ocr()))
@@ -219,29 +249,38 @@ class PDFExtractor:
                     self.log("⚠️  Tesseract requested but not installed")
                     self.log("   Install with: pip install pytesseract Pillow")
                     return text
-            
-            # Try each OCR engine
+
             for engine_name, engine in engines_to_try:
                 try:
-                    if engine_name == "paddle":
-                        # Use PaddleOCR (NEW) - requires numpy array
+                    if engine_name == "rapid":
+                        result, _ = engine(img_array)
+                        if result:
+                            ocr_text = "\n".join([line[1] for line in result])
+                            self.log(
+                                f"   RapidOCR extracted {len(ocr_text)} chars (was {len(text)})"
+                            )
+                            return ocr_text if len(ocr_text) > len(text) else text
+
+                    elif engine_name == "paddle":
                         result = engine.ocr(img_array)
                         if result and result[0]:
-                            ocr_text = '\n'.join([line[1][0] for line in result[0]])
-                            self.log(f"   PaddleOCR extracted {len(ocr_text)} chars (was {len(text)})")
+                            ocr_text = "\n".join([line[1][0] for line in result[0]])
+                            self.log(
+                                f"   PaddleOCR extracted {len(ocr_text)} chars (was {len(text)})"
+                            )
                             return ocr_text if len(ocr_text) > len(text) else text
-                    
+
                     elif engine_name == "tesseract":
-                        # Use Tesseract
                         ocr_text = engine.image_to_string(img)
-                        self.log(f"   Tesseract OCR extracted {len(ocr_text)} chars (was {len(text)})")
+                        self.log(
+                            f"   Tesseract OCR extracted {len(ocr_text)} chars (was {len(text)})"
+                        )
                         return ocr_text if len(ocr_text) > len(text) else text
-                        
+
                 except Exception as e:
                     self.log(f"   {engine_name.upper()} OCR failed: {e}")
                     continue
-            
-            # All engines failed
+
             if not engines_to_try:
                 self.log("⚠️  No OCR engine available")
                 if PADDLEOCR_AVAILABLE:
@@ -995,17 +1034,18 @@ class PDFExtractor:
 
         # Show feature status
         if self.use_ocr:
-            # Build OCR status message (NEW - PaddleOCR support)
             engines_status = []
+            if RAPIDOCR_AVAILABLE:
+                engines_status.append("RapidOCR")
             if PADDLEOCR_AVAILABLE:
                 engines_status.append("PaddleOCR")
             if TESSERACT_AVAILABLE:
                 engines_status.append("Tesseract")
-            
+
             if engines_status:
                 status = f"✅ enabled ({'/'.join(engines_status)}, engine={self.ocr_engine})"
             else:
-                status = "⚠️  not available (install paddleocr or pytesseract)"
+                status = "⚠️  not available (install rapidocr-onnxruntime)"
             print(f"   OCR: {status}")
         if self.extract_tables:
             print("   Table extraction: ✅ enabled")
@@ -1192,21 +1232,23 @@ Examples:
 
     # Advanced features (Priority 2 & 3)
     parser.add_argument(
-        "--ocr", action="store_true", help="Use OCR for scanned PDFs (NEW: supports PaddleOCR & Tesseract)"
+        "--ocr",
+        action="store_true",
+        help="Use OCR for scanned PDFs (supports RapidOCR, PaddleOCR & Tesseract)",
     )
     parser.add_argument(
         "--ocr-engine",
         type=str,
         default="auto",
-        choices=["auto", "paddle", "tesseract"],
-        help="OCR engine: 'auto' (PaddleOCR first, best for Chinese), 'paddle' (PaddleOCR only), 'tesseract' (fallback) (default: auto)"
+        choices=["auto", "rapid", "paddle", "tesseract"],
+        help="OCR engine: 'auto' (RapidOCR first), 'rapid' (recommended, no AVX512 needed), 'paddle' (requires AVX512), 'tesseract' (default: auto)",
     )
     parser.add_argument(
         "--paddle-lang",
         type=str,
         default="ch",
         choices=["ch", "en", "chinese_cht", "korean", "japan", "latin"],
-        help="PaddleOCR language: 'ch'=Chinese, 'en'=English, 'chinese_cht'=Traditional Chinese (default: ch)"
+        help="PaddleOCR language: 'ch'=Chinese, 'en'=English, 'chinese_cht'=Traditional Chinese (default: ch)",
     )
     parser.add_argument("--password", type=str, default=None, help="Password for encrypted PDF")
     parser.add_argument(

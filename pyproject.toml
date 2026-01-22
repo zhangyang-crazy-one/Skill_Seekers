@@ -48,8 +48,10 @@ dependencies = [
     "PyMuPDF>=1.24.14",
     "Pillow>=11.0.0",
     "pytesseract>=0.3.13",  # Optional: Tesseract OCR (fallback)
-    "paddleocr>=2.7.0",  # NEW: PaddleOCR for better Chinese OCR
-    "paddlepaddle>=3.2.0",  # NEW: PaddlePaddle backend for PaddleOCR
+    # OCR engines (choose one):
+    # - RapidOCR: Uses ONNX Runtime, no CPU instruction issues, great Chinese support
+    # - PaddleOCR: Better accuracy but requires AVX512 CPU support
+    "rapidocr-onnxruntime>=1.3.0",  # RapidOCR with ONNX Runtime (recommended)
     "pydantic>=2.12.3",
     "pydantic-settings>=2.11.0",
     "python-dotenv>=1.1.1",
@@ -58,6 +60,8 @@ dependencies = [
     "Pygments>=2.19.2",
     "pathspec>=0.12.1",
     "networkx>=3.0",
+    "setuptools>=80.10.1",
+    "opencv-python-headless>=4.13.0.90",
 ]
 
 [project.optional-dependencies]

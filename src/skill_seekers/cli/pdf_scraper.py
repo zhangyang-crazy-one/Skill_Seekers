@@ -574,18 +574,18 @@ Examples:
     parser.add_argument("--from-json", help="Build skill from extracted JSON")
     parser.add_argument("--description", help="Skill description")
 
-    # OCR options (NEW - PaddleOCR support)
+    # OCR options
     parser.add_argument(
         "--ocr",
         action="store_true",
-        help="Use OCR for scanned PDFs (NEW: supports PaddleOCR & Tesseract)",
+        help="Use OCR for scanned PDFs (supports RapidOCR, PaddleOCR & Tesseract)",
     )
     parser.add_argument(
         "--ocr-engine",
         type=str,
         default="auto",
-        choices=["auto", "paddle", "tesseract"],
-        help="OCR engine: 'auto' (PaddleOCR first, best for Chinese), 'paddle' (PaddleOCR only), 'tesseract' (fallback) (default: auto)",
+        choices=["auto", "rapid", "paddle", "tesseract"],
+        help="OCR engine: 'auto' (RapidOCR first), 'rapid' (recommended, no AVX512 needed), 'paddle' (requires AVX512), 'tesseract' (default: auto)",
     )
     parser.add_argument(
         "--paddle-lang",
