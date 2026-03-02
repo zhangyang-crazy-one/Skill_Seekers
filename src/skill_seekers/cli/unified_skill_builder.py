@@ -151,7 +151,7 @@ class UnifiedSkillBuilder:
         """
         sections = {}
         current_section = None
-        current_content = []
+        current_content: list[str] = []
 
         lines = skill_md.split("\n")
 
@@ -621,7 +621,7 @@ This skill combines knowledge from multiple sources:
             content += f"**{len(self.conflicts)} conflicts detected** between sources.\n\n"
 
             # Count by type
-            by_type = {}
+            by_type: dict[str, int] = {}
             for conflict in self.conflicts:
                 ctype = (
                     conflict.type if hasattr(conflict, "type") else conflict.get("type", "unknown")
@@ -979,7 +979,7 @@ This skill combines knowledge from multiple sources:
             f.write("# Merged API Reference\n\n")
             f.write("*Combined from documentation and code analysis*\n\n")
 
-            apis = self.merged_data.get("apis", {})
+            apis = (self.merged_data or {}).get("apis", {})
 
             for api_name in sorted(apis.keys()):
                 api_data = apis[api_name]
@@ -1101,7 +1101,7 @@ This skill combines knowledge from multiple sources:
                 f.write("*Classic design patterns identified in the codebase*\n\n")
 
                 # Summarize pattern types
-                pattern_summary = {}
+                pattern_summary: dict[str, int] = {}
                 for file_data in c3_data["patterns"]:
                     for pattern in file_data.get("patterns", []):
                         ptype = pattern["pattern_type"]
@@ -1461,7 +1461,7 @@ This skill combines knowledge from multiple sources:
                 content += f"**Design Patterns**: {total_patterns} detected\n"
 
                 # Show top 3 pattern types
-                pattern_summary = {}
+                pattern_summary: dict[str, int] = {}
                 for file_data in c3_data["patterns"]:
                     for pattern in file_data.get("patterns", []):
                         ptype = pattern["pattern_type"]

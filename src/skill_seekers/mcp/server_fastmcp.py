@@ -49,14 +49,22 @@ All tool implementations are delegated to modular tool files in tools/ directory
 import argparse
 import logging
 import sys
+from typing import TYPE_CHECKING, Any
 
 # Import FastMCP
 MCP_AVAILABLE = False
-FastMCP = None
+
+if TYPE_CHECKING:
+    from mcp.server import FastMCP as FastMCPType
+else:
+    FastMCPType = Any
+
+_FastMCP: type[FastMCPType] | None = None
 
 try:
-    from mcp.server import FastMCP
+    from mcp.server import FastMCP as _FastMCPImport
 
+    _FastMCP = _FastMCPImport
     MCP_AVAILABLE = True
 except ImportError as e:
     # Only exit if running as main module, not when importing for tests
@@ -67,72 +75,95 @@ except ImportError as e:
         sys.exit(1)
 
 # Import all tool implementations
+# Declare functions first with proper typing hints for mypy
+from typing import Callable
+
+# Type alias for tool impl functions
+ToolImplFunc = Callable[..., Any]
+
+# Import tool implementations - try relative first, then absolute
 try:
-    from .tools import (
-        add_config_source_impl,
-        build_how_to_guides_impl,
-        detect_patterns_impl,
-        enhance_skill_impl,
-        # Scraping tools
-        estimate_pages_impl,
-        extract_config_patterns_impl,
-        extract_test_examples_impl,
-        # Source tools
-        fetch_config_impl,
-        # Config tools
-        generate_config_impl,
-        generate_router_impl,
-        install_skill_impl,
-        list_config_sources_impl,
-        list_configs_impl,
-        # Packaging tools
-        package_skill_impl,
-        remove_config_source_impl,
-        scrape_codebase_impl,
-        scrape_docs_impl,
-        scrape_github_impl,
-        scrape_pdf_impl,
-        # Splitting tools
-        split_config_impl,
-        submit_config_impl,
-        upload_skill_impl,
-        validate_config_impl,
-    )
+    from .tools import add_config_source_impl as _add_config_source_impl
+    from .tools import build_how_to_guides_impl as _build_how_to_guides_impl
+    from .tools import detect_patterns_impl as _detect_patterns_impl
+    from .tools import enhance_skill_impl as _enhance_skill_impl
+    from .tools import estimate_pages_impl as _estimate_pages_impl
+    from .tools import extract_config_patterns_impl as _extract_config_patterns_impl
+    from .tools import extract_test_examples_impl as _extract_test_examples_impl
+    from .tools import fetch_config_impl as _fetch_config_impl
+    from .tools import generate_config_impl as _generate_config_impl
+    from .tools import generate_router_impl as _generate_router_impl
+    from .tools import install_skill_impl as _install_skill_impl
+    from .tools import list_config_sources_impl as _list_config_sources_impl
+    from .tools import list_configs_impl as _list_configs_impl
+    from .tools import package_skill_impl as _package_skill_impl
+    from .tools import remove_config_source_impl as _remove_config_source_impl
+    from .tools import scrape_codebase_impl as _scrape_codebase_impl
+    from .tools import scrape_docs_impl as _scrape_docs_impl
+    from .tools import scrape_github_impl as _scrape_github_impl
+    from .tools import scrape_pdf_impl as _scrape_pdf_impl
+    from .tools import split_config_impl as _split_config_impl
+    from .tools import submit_config_impl as _submit_config_impl
+    from .tools import upload_skill_impl as _upload_skill_impl
+    from .tools import validate_config_impl as _validate_config_impl
 except ImportError:
     # Fallback for direct script execution
     import os
 
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from tools import (
-        add_config_source_impl,
-        build_how_to_guides_impl,
-        detect_patterns_impl,
-        enhance_skill_impl,
-        estimate_pages_impl,
-        extract_config_patterns_impl,
-        extract_test_examples_impl,
-        fetch_config_impl,
-        generate_config_impl,
-        generate_router_impl,
-        install_skill_impl,
-        list_config_sources_impl,
-        list_configs_impl,
-        package_skill_impl,
-        remove_config_source_impl,
-        scrape_codebase_impl,
-        scrape_docs_impl,
-        scrape_github_impl,
-        scrape_pdf_impl,
-        split_config_impl,
-        submit_config_impl,
-        upload_skill_impl,
-        validate_config_impl,
-    )
+    from tools import add_config_source_impl as _add_config_source_impl  # type: ignore[import-not-found,no-redef]
+    from tools import build_how_to_guides_impl as _build_how_to_guides_impl  # type: ignore[import-not-found,no-redef]
+    from tools import detect_patterns_impl as _detect_patterns_impl  # type: ignore[import-not-found,no-redef]
+    from tools import enhance_skill_impl as _enhance_skill_impl  # type: ignore[import-not-found,no-redef]
+    from tools import estimate_pages_impl as _estimate_pages_impl  # type: ignore[import-not-found,no-redef]
+    from tools import extract_config_patterns_impl as _extract_config_patterns_impl  # type: ignore[import-not-found,no-redef]
+    from tools import extract_test_examples_impl as _extract_test_examples_impl  # type: ignore[import-not-found,no-redef]
+    from tools import fetch_config_impl as _fetch_config_impl  # type: ignore[import-not-found,no-redef]
+    from tools import generate_config_impl as _generate_config_impl  # type: ignore[import-not-found,no-redef]
+    from tools import generate_router_impl as _generate_router_impl  # type: ignore[import-not-found,no-redef]
+    from tools import install_skill_impl as _install_skill_impl  # type: ignore[import-not-found,no-redef]
+    from tools import list_config_sources_impl as _list_config_sources_impl  # type: ignore[import-not-found,no-redef]
+    from tools import list_configs_impl as _list_configs_impl  # type: ignore[import-not-found,no-redef]
+    from tools import package_skill_impl as _package_skill_impl  # type: ignore[import-not-found,no-redef]
+    from tools import remove_config_source_impl as _remove_config_source_impl  # type: ignore[import-not-found,no-redef]
+    from tools import scrape_codebase_impl as _scrape_codebase_impl  # type: ignore[import-not-found,no-redef]
+    from tools import scrape_docs_impl as _scrape_docs_impl  # type: ignore[import-not-found,no-redef]
+    from tools import scrape_github_impl as _scrape_github_impl  # type: ignore[import-not-found,no-redef]
+    from tools import scrape_pdf_impl as _scrape_pdf_impl  # type: ignore[import-not-found,no-redef]
+    from tools import split_config_impl as _split_config_impl  # type: ignore[import-not-found,no-redef]
+    from tools import submit_config_impl as _submit_config_impl  # type: ignore[import-not-found,no-redef]
+    from tools import upload_skill_impl as _upload_skill_impl  # type: ignore[import-not-found,no-redef]
+    from tools import validate_config_impl as _validate_config_impl  # type: ignore[import-not-found,no-redef]
+
+# Assign to final names (avoid redefinition issues)
+add_config_source_impl: ToolImplFunc = _add_config_source_impl
+build_how_to_guides_impl: ToolImplFunc = _build_how_to_guides_impl
+detect_patterns_impl: ToolImplFunc = _detect_patterns_impl
+enhance_skill_impl: ToolImplFunc = _enhance_skill_impl
+estimate_pages_impl: ToolImplFunc = _estimate_pages_impl
+extract_config_patterns_impl: ToolImplFunc = _extract_config_patterns_impl
+extract_test_examples_impl: ToolImplFunc = _extract_test_examples_impl
+fetch_config_impl: ToolImplFunc = _fetch_config_impl
+generate_config_impl: ToolImplFunc = _generate_config_impl
+generate_router_impl: ToolImplFunc = _generate_router_impl
+install_skill_impl: ToolImplFunc = _install_skill_impl
+list_config_sources_impl: ToolImplFunc = _list_config_sources_impl
+list_configs_impl: ToolImplFunc = _list_configs_impl
+package_skill_impl: ToolImplFunc = _package_skill_impl
+remove_config_source_impl: ToolImplFunc = _remove_config_source_impl
+scrape_codebase_impl: ToolImplFunc = _scrape_codebase_impl
+scrape_docs_impl: ToolImplFunc = _scrape_docs_impl
+scrape_github_impl: ToolImplFunc = _scrape_github_impl
+scrape_pdf_impl: ToolImplFunc = _scrape_pdf_impl
+split_config_impl: ToolImplFunc = _split_config_impl
+submit_config_impl: ToolImplFunc = _submit_config_impl
+upload_skill_impl: ToolImplFunc = _upload_skill_impl
+validate_config_impl: ToolImplFunc = _validate_config_impl
 
 # Initialize FastMCP server
-mcp = None
-if MCP_AVAILABLE and FastMCP is not None:
-    mcp = FastMCP(
+mcp: FastMCPType | None = None
+if MCP_AVAILABLE and _FastMCP is not None:
+    mcp = _FastMCP(
         name="skill-seeker",
         instructions="Skill Seeker MCP Server - Generate Claude AI skills from documentation",
     )
@@ -335,7 +366,7 @@ async def scrape_github(
     Returns:
         GitHub scraping results with file paths.
     """
-    args = {}
+    args: dict[str, str | int | bool] = {}
     if repo:
         args["repo"] = repo
     if config_path:
@@ -1124,7 +1155,7 @@ def setup_logging(log_level: str):
     )
 
 
-async def run_http_server(host: str, port: int):
+async def run_http_server(host: str, port: int) -> None:
     """Run the MCP server with HTTP transport using uvicorn."""
     try:
         import uvicorn
@@ -1134,6 +1165,11 @@ async def run_http_server(host: str, port: int):
         sys.exit(1)
 
     try:
+        # Ensure mcp is available (checked in main() already, but help mypy)
+        if mcp is None:
+            logging.error("❌ Error: MCP server not initialized")
+            sys.exit(1)
+
         # Get the SSE Starlette app from FastMCP
         app = mcp.sse_app()
 

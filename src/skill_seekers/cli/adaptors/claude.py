@@ -13,9 +13,12 @@ Supports alternative API endpoints (e.g., MiniMax) via environment variables:
 import os
 import zipfile
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from .base import SkillAdaptor, SkillMetadata
+
+if TYPE_CHECKING:
+    from anthropic.types import TextBlock
 
 
 class ClaudeAdaptor(SkillAdaptor):
@@ -36,7 +39,7 @@ class ClaudeAdaptor(SkillAdaptor):
     # Default model - can be overridden via ANTHROPIC_MODEL environment variable
     DEFAULT_MODEL = "claude-sonnet-4-20250514"
 
-    def __init__(self, config: dict = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         super().__init__(config)
         # Support custom model for alternative API endpoints (e.g., MiniMax)
         self.model = os.environ.get("ANTHROPIC_MODEL", self.DEFAULT_MODEL)
@@ -366,7 +369,7 @@ version: {metadata.version}
             print("  ℹ No existing SKILL.md, will create new one")
 
         # Build enhancement prompt
-        prompt = self._build_enhancement_prompt(skill_dir.name, references, current_skill_md)
+        prompt = self._build_enhancement_prompt(skill_dir.name, references, current_skill_md or "")
 
         print("\n🤖 Asking Claude to enhance SKILL.md...")
         print(f"   Input: {len(prompt):,} characters")
@@ -375,12 +378,11 @@ version: {metadata.version}
         try:
             # Support custom base URL for alternative API endpoints (e.g., MiniMax)
             base_url = os.environ.get("ANTHROPIC_BASE_URL")
-            client_kwargs = {"api_key": api_key}
             if base_url:
-                client_kwargs["base_url"] = base_url
                 print(f"   Base URL: {base_url}")
-
-            client = anthropic.Anthropic(**client_kwargs)
+                client = anthropic.Anthropic(api_key=api_key, base_url=base_url)
+            else:
+                client = anthropic.Anthropic(api_key=api_key)
 
             message = client.messages.create(
                 model=self.model,
@@ -389,7 +391,13 @@ version: {metadata.version}
                 messages=[{"role": "user", "content": prompt}],
             )
 
-            enhanced_content = message.content[0].text
+            # Extract text from the first content block
+            first_block = message.content[0]
+            if hasattr(first_block, "text"):
+                enhanced_content = first_block.text
+            else:
+                print("❌ Unexpected response format from Claude API")
+                return False
             print(f"  ✓ Generated enhanced SKILL.md ({len(enhanced_content)} chars)\n")
 
             # Backup original
@@ -447,7 +455,7 @@ version: {metadata.version}
         return references
 
     def _build_enhancement_prompt(
-        self, skill_name: str, references: dict[str, str], current_skill_md: str = None
+        self, skill_name: str, references: dict[str, str], current_skill_md: str = ""
     ) -> str:
         """
         Build Claude API prompt for enhancement.

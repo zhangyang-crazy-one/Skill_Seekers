@@ -6,45 +6,60 @@ Provides factory function to get platform-specific adaptors for skill generation
 Supports Claude AI, Google Gemini, OpenAI ChatGPT, and generic Markdown export.
 """
 
+from typing import Any
+
 from .base import SkillAdaptor, SkillMetadata
 
 # Import adaptors (some may not be implemented yet)
-try:
-    from .claude import ClaudeAdaptor
-except ImportError:
-    ClaudeAdaptor = None
+_ClaudeAdaptor: type[SkillAdaptor] | None = None
+_GeminiAdaptor: type[SkillAdaptor] | None = None
+_OpenAIAdaptor: type[SkillAdaptor] | None = None
+_MarkdownAdaptor: type[SkillAdaptor] | None = None
 
 try:
-    from .gemini import GeminiAdaptor
+    from .claude import ClaudeAdaptor as _ClaudeAdaptorImport
+
+    _ClaudeAdaptor = _ClaudeAdaptorImport
 except ImportError:
-    GeminiAdaptor = None
+    pass
 
 try:
-    from .openai import OpenAIAdaptor
+    from .gemini import GeminiAdaptor as _GeminiAdaptorImport
+
+    _GeminiAdaptor = _GeminiAdaptorImport
 except ImportError:
-    OpenAIAdaptor = None
+    pass
 
 try:
-    from .markdown import MarkdownAdaptor
+    from .openai import OpenAIAdaptor as _OpenAIAdaptorImport
+
+    _OpenAIAdaptor = _OpenAIAdaptorImport
 except ImportError:
-    MarkdownAdaptor = None
+    pass
+
+try:
+    from .markdown import MarkdownAdaptor as _MarkdownAdaptorImport
+
+    _MarkdownAdaptor = _MarkdownAdaptorImport
+except ImportError:
+    pass
 
 
 # Registry of available adaptors
 ADAPTORS: dict[str, type[SkillAdaptor]] = {}
 
 # Register adaptors that are implemented
-if ClaudeAdaptor:
-    ADAPTORS["claude"] = ClaudeAdaptor
-if GeminiAdaptor:
-    ADAPTORS["gemini"] = GeminiAdaptor
-if OpenAIAdaptor:
-    ADAPTORS["openai"] = OpenAIAdaptor
-if MarkdownAdaptor:
-    ADAPTORS["markdown"] = MarkdownAdaptor
+if _ClaudeAdaptor is not None:
+    ADAPTORS["claude"] = _ClaudeAdaptor
+if _GeminiAdaptor is not None:
+    ADAPTORS["gemini"] = _GeminiAdaptor
+if _OpenAIAdaptor is not None:
+    ADAPTORS["openai"] = _OpenAIAdaptor
+if _MarkdownAdaptor is not None:
+    ADAPTORS["markdown"] = _MarkdownAdaptor
 
 
-def get_adaptor(platform: str, config: dict = None) -> SkillAdaptor:
+def get_adaptor(platform: str, config: dict[str, Any] | None = None) -> SkillAdaptor:
     """
     Factory function to get platform-specific adaptor instance.
 

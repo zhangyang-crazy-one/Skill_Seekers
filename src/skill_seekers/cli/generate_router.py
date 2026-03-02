@@ -12,23 +12,44 @@ Phase 4 enhancements:
 - GitHub issue links for context
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
-# Import three-stream data classes (Phase 1)
+if TYPE_CHECKING:
+    from .github_fetcher import ThreeStreamData
+
+_HAS_GITHUB_FETCHER = False
+_ThreeStreamData: Optional[type] = None
 try:
-    from .github_fetcher import DocsStream, InsightsStream, ThreeStreamData
-    from .markdown_cleaner import MarkdownCleaner
+    from .github_fetcher import DocsStream, InsightsStream
+    from .github_fetcher import ThreeStreamData as ThreeStreamDataImport
+    from .markdown_cleaner import MarkdownCleaner as MarkdownCleanerImport
     from .merge_sources import categorize_issues_by_topic
+
+    _HAS_GITHUB_FETCHER = True
+    _ThreeStreamData = ThreeStreamDataImport
+    MarkdownCleaner = MarkdownCleanerImport
 except ImportError:
-    # Fallback if github_fetcher not available
-    ThreeStreamData = None
-    DocsStream = None
-    InsightsStream = None
-    categorize_issues_by_topic = None
+    DocsStream = None  # type: ignore[misc, assignment]
+    InsightsStream = None  # type: ignore[misc, assignment]
+    categorize_issues_by_topic = None  # type: ignore[assignment]
+
+
+class _FallbackMarkdownCleaner:
+    """Fallback MarkdownCleaner when module not available."""
+
+    def extract_first_section(self, content: str, max_chars: int = 1500) -> str:
+        """Extract first section from content."""
+        return content[:max_chars] if len(content) > max_chars else content
+
+
+if not _HAS_GITHUB_FETCHER:
+    MarkdownCleaner = _FallbackMarkdownCleaner  # type: ignore[misc, assignment]
 
 
 class RouterGenerator:
@@ -37,7 +58,7 @@ class RouterGenerator:
     def __init__(
         self,
         config_paths: list[str],
-        router_name: str = None,
+        router_name: Optional[str] = None,
         github_streams: Optional["ThreeStreamData"] = None,
     ):
         """
@@ -766,7 +787,9 @@ This is a router skill that directs your questions to specialized sub-skills for
             readme = self.github_docs["readme"]
 
             # NEW: Clean HTML and extract meaningful content
-            quick_start = self._extract_clean_readme_section(readme)
+            quick_start: str = ""
+            if readme is not None:
+                quick_start = self._extract_clean_readme_section(readme)
 
             if quick_start:
                 skill_md += f"""## Quick Start
@@ -935,7 +958,7 @@ Simply ask your question and mention the topic. The router will find the right s
         Returns:
             Markdown section with relevant GitHub issues
         """
-        if not self.github_issues or not categorize_issues_by_topic:
+        if not self.github_issues or categorize_issues_by_topic is None:
             return ""
 
         common_problems = self.github_issues.get("common_problems", [])
@@ -1076,11 +1099,10 @@ GitHub issues related to this topic:
         if self.github_docs and self.github_docs.get("readme"):
             readme = self.github_docs["readme"]
 
-            # Clean and extract full quick start section (up to 2000 chars)
-            cleaner = MarkdownCleaner()
-            content = cleaner.extract_first_section(readme, max_chars=2000)
-
-            md += content
+            if readme is not None:
+                cleaner = MarkdownCleaner()
+                content = cleaner.extract_first_section(readme, max_chars=2000)
+                md += content
         else:
             md += "No README content available.\n"
 
@@ -1109,7 +1131,7 @@ GitHub issues related to this topic:
             with open(references_dir / "getting_started.md", "w") as f:
                 f.write(getting_started_md)
 
-    def generate(self, output_dir: Path = None) -> tuple[Path, Path]:
+    def generate(self, output_dir: Optional[Path] = None) -> tuple[Path, Path]:
         """Generate router skill and config with progressive disclosure"""
         if output_dir is None:
             output_dir = self.config_paths[0].parent

@@ -69,7 +69,7 @@ class UnifiedScraper:
         logger.info(f"Merge mode: {self.merge_mode}")
 
         # Storage for scraped data - use lists to support multiple sources of same type
-        self.scraped_data = {
+        self.scraped_data: dict[str, list[dict[str, Any]]] = {
             "documentation": [],  # List of doc sources
             "github": [],  # List of github sources
             "pdf": [],  # List of pdf sources
@@ -477,7 +477,8 @@ class UnifiedScraper:
         # Scrape
         logger.info(f"Scraping PDF: {source['path']}")
         converter = PDFToSkillConverter(pdf_config)
-        pdf_data = converter.extract_all()
+        converter.extract_pdf()
+        pdf_data = converter.extracted_data or {}
 
         # Save data
         pdf_data_file = os.path.join(self.data_dir, f"pdf_data_{idx}_{pdf_id}.json")
@@ -688,13 +689,17 @@ class UnifiedScraper:
             logger.info("No API merge needed (only one API source)")
             return []
 
-        # Get documentation and GitHub data
-        docs_data = self.scraped_data.get("documentation", {})
-        github_data = self.scraped_data.get("github", {})
+        # Get documentation and GitHub data (use first source from each list)
+        docs_list = self.scraped_data.get("documentation", [])
+        github_list = self.scraped_data.get("github", [])
 
-        if not docs_data or not github_data:
+        if not docs_list or not github_list:
             logger.warning("Missing documentation or GitHub data for conflict detection")
             return []
+
+        # Use the first source from each type
+        docs_data = docs_list[0]
+        github_data = github_list[0]
 
         # Load data files
         with open(docs_data["data_file"], encoding="utf-8") as f:
@@ -742,18 +747,23 @@ class UnifiedScraper:
             logger.info("No conflicts to merge")
             return None
 
-        # Get data files
-        docs_data = self.scraped_data.get("documentation", {})
-        github_data = self.scraped_data.get("github", {})
+        docs_list = self.scraped_data.get("documentation", [])
+        github_list = self.scraped_data.get("github", [])
 
-        # Load data
+        if not docs_list or not github_list:
+            logger.warning("Missing documentation or GitHub data for merging")
+            return None
+
+        docs_data = docs_list[0]
+        github_data = github_list[0]
+
         with open(docs_data["data_file"], encoding="utf-8") as f:
             docs_json = json.load(f)
 
         with open(github_data["data_file"], encoding="utf-8") as f:
             github_json = json.load(f)
 
-        # Choose merger
+        merger: ClaudeEnhancedMerger | RuleBasedMerger
         if self.merge_mode == "claude-enhanced":
             merger = ClaudeEnhancedMerger(docs_json, github_json, conflicts)
         else:

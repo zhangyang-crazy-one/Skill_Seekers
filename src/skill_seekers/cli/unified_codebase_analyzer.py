@@ -125,7 +125,8 @@ class UnifiedCodebaseAnalyzer:
         """
         # Use three-stream fetcher
         fetcher = GitHubThreeStreamFetcher(repo_url, self.github_token, interactive=interactive)
-        three_streams = fetcher.fetch(output_dir)
+        fetch_output = output_dir if output_dir is not None else Path.cwd() / ".skill_seekers_temp"
+        three_streams = fetcher.fetch(fetch_output)
 
         # Analyze code with specified depth
         code_directory = three_streams.code_stream.directory
@@ -420,7 +421,7 @@ class UnifiedCodebaseAnalyzer:
                     continue
         return files
 
-    def get_directory_structure(self, directory: Path) -> dict:
+    def get_directory_structure(self, directory: Path) -> dict[str, object]:
         """
         Get directory structure tree.
 
@@ -430,20 +431,20 @@ class UnifiedCodebaseAnalyzer:
         Returns:
             Dict representing directory structure
         """
-        structure = {"name": directory.name, "type": "directory", "children": []}
+        structure: dict[str, object] = {"name": directory.name, "type": "directory", "children": []}
 
         try:
+            children: list[dict[str, str]] = []
             for item in sorted(directory.iterdir()):
                 if item.name.startswith("."):
                     continue  # Skip hidden files
 
                 if item.is_dir():
                     # Only include immediate subdirectories
-                    structure["children"].append({"name": item.name, "type": "directory"})
+                    children.append({"name": item.name, "type": "directory"})
                 elif item.is_file():
-                    structure["children"].append(
-                        {"name": item.name, "type": "file", "extension": item.suffix}
-                    )
+                    children.append({"name": item.name, "type": "file", "extension": item.suffix})
+            structure["children"] = children
         except Exception:
             pass
 
@@ -459,7 +460,7 @@ class UnifiedCodebaseAnalyzer:
         Returns:
             Dict mapping file extensions to import lists
         """
-        imports = {".py": [], ".js": [], ".ts": []}
+        imports: dict[str, list[str]] = {".py": [], ".js": [], ".ts": []}
 
         # Sample up to 10 files per extension
         for ext in imports:
@@ -523,7 +524,7 @@ class UnifiedCodebaseAnalyzer:
 
         return entry_points
 
-    def compute_statistics(self, directory: Path) -> dict:
+    def compute_statistics(self, directory: Path) -> dict[str, int | dict[str, int]]:
         """
         Compute basic statistics about the codebase.
 
@@ -533,24 +534,22 @@ class UnifiedCodebaseAnalyzer:
         Returns:
             Dict with statistics
         """
-        stats = {
-            "total_files": 0,
-            "total_size_bytes": 0,
-            "file_types": {},
-            "languages": {},
-        }
+        total_files = 0
+        total_size_bytes = 0
+        file_types: dict[str, int] = {}
+        languages: dict[str, int] = {}
 
         for file_path in directory.rglob("*"):
             if not file_path.is_file():
                 continue
 
             try:
-                stats["total_files"] += 1
-                stats["total_size_bytes"] += file_path.stat().st_size
+                total_files += 1
+                total_size_bytes += file_path.stat().st_size
 
                 ext = file_path.suffix
                 if ext:
-                    stats["file_types"][ext] = stats["file_types"].get(ext, 0) + 1
+                    file_types[ext] = file_types.get(ext, 0) + 1
 
                     # Map extensions to languages
                     language_map = {
@@ -565,8 +564,13 @@ class UnifiedCodebaseAnalyzer:
                     }
                     if ext in language_map:
                         lang = language_map[ext]
-                        stats["languages"][lang] = stats["languages"].get(lang, 0) + 1
+                        languages[lang] = languages.get(lang, 0) + 1
             except Exception:
                 continue
 
-        return stats
+        return {
+            "total_files": total_files,
+            "total_size_bytes": total_size_bytes,
+            "file_types": file_types,
+            "languages": languages,
+        }

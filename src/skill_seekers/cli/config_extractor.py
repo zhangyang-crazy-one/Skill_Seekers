@@ -15,30 +15,56 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict, cast
+
+# Type aliases
+ConfigType = Literal[
+    "json",
+    "yaml",
+    "toml",
+    "env",
+    "ini",
+    "python",
+    "javascript",
+    "dockerfile",
+    "docker-compose",
+]
+
+
+class PatternDef(TypedDict):
+    """Type definition for pattern configuration"""
+
+    keys: list[str]
+    min_match: int
+
 
 logger = logging.getLogger(__name__)
 
-# Optional dependencies
-try:
-    import yaml
+# Optional dependencies - declare module-level types for mypy
+yaml: Any = None
+toml_lib: Any = None
 
+try:
+    import yaml as yaml_module
+
+    yaml = yaml_module
     YAML_AVAILABLE = True
 except ImportError:
     YAML_AVAILABLE = False
     logger.debug("PyYAML not available - YAML parsing will be limited")
 
 try:
-    import tomli as toml_lib
+    import tomli as tomli_module
 
+    toml_lib = tomli_module
     TOML_AVAILABLE = True
 except ImportError:
     try:
-        import toml as toml_lib  # noqa: F401
+        import toml as toml_module  # noqa: F401
 
+        toml_lib = toml_module
         TOML_AVAILABLE = True
     except ImportError:
-        toml_lib = None
         TOML_AVAILABLE = False
         logger.debug("toml/tomli not available - TOML parsing disabled")
 
@@ -287,20 +313,20 @@ class ConfigFileDetector:
 
             yield item
 
-    def _detect_config_type(self, file_path: Path) -> str | None:
+    def _detect_config_type(self, file_path: Path) -> ConfigType | None:
         """Detect configuration file type"""
         filename = file_path.name.lower()
 
         # Check each config type
-        for config_type, patterns in self.CONFIG_PATTERNS.items():
+        for config_type_str, patterns in self.CONFIG_PATTERNS.items():
             # Check exact name matches
             if filename in patterns["names"]:
-                return config_type
+                return cast(ConfigType, config_type_str)
 
             # Check pattern matches
             for pattern in patterns["patterns"]:
                 if file_path.match(pattern):
-                    return config_type
+                    return cast(ConfigType, config_type_str)
 
         return None
 
@@ -394,18 +420,25 @@ class ConfigParser:
 
         return config_file
 
-    def _parse_json(self, config_file: ConfigFile):
+    def _parse_json(self, config_file: ConfigFile) -> None:
         """Parse JSON configuration"""
+        if config_file.raw_content is None:
+            config_file.parse_errors.append("No content to parse")
+            return
         try:
             data = json.loads(config_file.raw_content)
             self._extract_settings_from_dict(data, config_file)
         except json.JSONDecodeError as e:
             config_file.parse_errors.append(f"JSON parse error: {str(e)}")
 
-    def _parse_yaml(self, config_file: ConfigFile):
+    def _parse_yaml(self, config_file: ConfigFile) -> None:
         """Parse YAML configuration"""
         if not YAML_AVAILABLE:
             config_file.parse_errors.append("PyYAML not installed")
+            return
+
+        if config_file.raw_content is None:
+            config_file.parse_errors.append("No content to parse")
             return
 
         try:
@@ -415,10 +448,14 @@ class ConfigParser:
         except yaml.YAMLError as e:
             config_file.parse_errors.append(f"YAML parse error: {str(e)}")
 
-    def _parse_toml(self, config_file: ConfigFile):
+    def _parse_toml(self, config_file: ConfigFile) -> None:
         """Parse TOML configuration"""
-        if not TOML_AVAILABLE:
+        if not TOML_AVAILABLE or toml_lib is None:
             config_file.parse_errors.append("toml/tomli not installed")
+            return
+
+        if config_file.raw_content is None:
+            config_file.parse_errors.append("No content to parse")
             return
 
         try:
@@ -427,8 +464,12 @@ class ConfigParser:
         except Exception as e:
             config_file.parse_errors.append(f"TOML parse error: {str(e)}")
 
-    def _parse_env(self, config_file: ConfigFile):
+    def _parse_env(self, config_file: ConfigFile) -> None:
         """Parse .env file"""
+        if config_file.raw_content is None:
+            config_file.parse_errors.append("No content to parse")
+            return
+
         lines = config_file.raw_content.split("\n")
 
         for line_num, line in enumerate(lines, 1):
@@ -453,9 +494,13 @@ class ConfigParser:
                 )
                 config_file.settings.append(setting)
 
-    def _parse_ini(self, config_file: ConfigFile):
+    def _parse_ini(self, config_file: ConfigFile) -> None:
         """Parse INI configuration"""
         import configparser
+
+        if config_file.raw_content is None:
+            config_file.parse_errors.append("No content to parse")
+            return
 
         try:
             parser = configparser.ConfigParser()
@@ -473,8 +518,12 @@ class ConfigParser:
         except Exception as e:
             config_file.parse_errors.append(f"INI parse error: {str(e)}")
 
-    def _parse_python_config(self, config_file: ConfigFile):
+    def _parse_python_config(self, config_file: ConfigFile) -> None:
         """Parse Python configuration module"""
+        if config_file.raw_content is None:
+            config_file.parse_errors.append("No content to parse")
+            return
+
         try:
             tree = ast.parse(config_file.raw_content)
 
@@ -505,8 +554,12 @@ class ConfigParser:
         except SyntaxError as e:
             config_file.parse_errors.append(f"Python parse error: {str(e)}")
 
-    def _parse_javascript_config(self, config_file: ConfigFile):
+    def _parse_javascript_config(self, config_file: ConfigFile) -> None:
         """Parse JavaScript/TypeScript config (basic extraction)"""
+        if config_file.raw_content is None:
+            config_file.parse_errors.append("No content to parse")
+            return
+
         # Simple regex-based extraction for common patterns
         patterns = [
             r'(?:const|let|var)\s+(\w+)\s*[:=]\s*(["\'])(.*?)\2',  # String values
@@ -525,8 +578,12 @@ class ConfigParser:
                     )
                     config_file.settings.append(setting)
 
-    def _parse_dockerfile(self, config_file: ConfigFile):
+    def _parse_dockerfile(self, config_file: ConfigFile) -> None:
         """Parse Dockerfile configuration"""
+        if config_file.raw_content is None:
+            config_file.parse_errors.append("No content to parse")
+            return
+
         lines = config_file.raw_content.split("\n")
 
         for line in lines:
@@ -549,14 +606,14 @@ class ConfigParser:
             elif line.startswith("ARG "):
                 parts = line[4:].split("=", 1)
                 key = parts[0].strip()
-                value = parts[1].strip() if len(parts) == 2 else None
+                arg_value: str | None = parts[1].strip() if len(parts) == 2 else None
 
-                setting = ConfigSetting(key=key, value=value, value_type="string")
+                setting = ConfigSetting(key=key, value=arg_value, value_type="string")
                 config_file.settings.append(setting)
 
     def _extract_settings_from_dict(
-        self, data: dict, config_file: ConfigFile, parent_path: list[str] = None
-    ):
+        self, data: dict[str, Any], config_file: ConfigFile, parent_path: list[str] | None = None
+    ) -> None:
         """Recursively extract settings from dictionary"""
         if parent_path is None:
             parent_path = []
@@ -609,7 +666,7 @@ class ConfigPatternDetector:
     """Detect common configuration patterns"""
 
     # Known configuration patterns
-    KNOWN_PATTERNS = {
+    KNOWN_PATTERNS: dict[str, PatternDef] = {
         "database_config": {
             "keys": [
                 "host",

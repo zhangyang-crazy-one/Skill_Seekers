@@ -12,20 +12,27 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, Optional
 
 import httpx
+
+# Type imports for static analysis
+if TYPE_CHECKING:
+    from mcp.server import Server as ServerType
+    from mcp.types import TextContent as TextContentType
+    from mcp.types import Tool as ToolType
 
 # Import external MCP package
 # NOTE: Directory renamed from 'mcp/' to 'skill_seeker_mcp/' to avoid shadowing the external mcp package
 MCP_AVAILABLE = False
-Server = None
-Tool = None
-TextContent = None
+_Server: Optional[type] = None
+_Tool: Optional[type] = None
+_TextContent: Optional[type] = None
 
 try:
-    from mcp.server import Server
-    from mcp.types import TextContent, Tool
+    from mcp.server import Server as _Server  # type: ignore[no-redef]
+    from mcp.types import TextContent as _TextContent  # type: ignore[no-redef]
+    from mcp.types import Tool as _Tool  # type: ignore[no-redef]
 
     MCP_AVAILABLE = True
 except ImportError as e:
@@ -37,7 +44,25 @@ except ImportError as e:
 
 
 # Initialize MCP server (only if MCP is available)
-app = Server("skill-seeker") if MCP_AVAILABLE and Server is not None else None
+app: Optional["ServerType"] = (
+    _Server("skill-seeker") if MCP_AVAILABLE and _Server is not None else None
+)
+
+
+# Type-safe wrapper functions
+def create_tool(**kwargs: Any) -> "ToolType":
+    """Create a Tool instance with proper typing."""
+    if _Tool is None:
+        raise RuntimeError("MCP not available")
+    return _Tool(**kwargs)
+
+
+def create_text_content(**kwargs: Any) -> "TextContentType":
+    """Create a TextContent instance with proper typing."""
+    if _TextContent is None:
+        raise RuntimeError("MCP not available")
+    return _TextContent(**kwargs)
+
 
 # Path to CLI tools
 CLI_DIR = Path(__file__).parent.parent / "cli"
@@ -63,7 +88,9 @@ def safe_decorator(decorator_func):
         return noop_decorator
 
 
-def run_subprocess_with_streaming(cmd, timeout=None):
+def run_subprocess_with_streaming(
+    cmd: list[str], timeout: Optional[float] = None
+) -> tuple[str, str, int]:
     """
     Run subprocess with real-time output streaming.
     Returns (stdout, stderr, returncode).
@@ -81,8 +108,8 @@ def run_subprocess_with_streaming(cmd, timeout=None):
             universal_newlines=True,
         )
 
-        stdout_lines = []
-        stderr_lines = []
+        stdout_lines: list[str] = []
+        stderr_lines: list[str] = []
         start_time = time.time()
 
         # Read output line by line as it comes
@@ -103,12 +130,12 @@ def run_subprocess_with_streaming(cmd, timeout=None):
 
                 readable, _, _ = select.select([process.stdout, process.stderr], [], [], 0.1)
 
-                if process.stdout in readable:
+                if process.stdout is not None and process.stdout in readable:
                     line = process.stdout.readline()
                     if line:
                         stdout_lines.append(line)
 
-                if process.stderr in readable:
+                if process.stderr is not None and process.stderr in readable:
                     line = process.stderr.readline()
                     if line:
                         stderr_lines.append(line)
@@ -125,7 +152,7 @@ def run_subprocess_with_streaming(cmd, timeout=None):
 
         stdout = "".join(stdout_lines)
         stderr = "".join(stderr_lines)
-        returncode = process.returncode
+        returncode = process.returncode if process.returncode is not None else 1
 
         return stdout, stderr, returncode
 
@@ -134,10 +161,10 @@ def run_subprocess_with_streaming(cmd, timeout=None):
 
 
 @safe_decorator(app.list_tools() if app else lambda: lambda f: f)
-async def list_tools() -> list[Tool]:
+async def list_tools() -> list["ToolType"]:
     """List available tools"""
     return [
-        Tool(
+        create_tool(
             name="generate_config",
             description="Generate a config file for documentation scraping. Interactively creates a JSON config for any documentation website.",
             inputSchema={
@@ -174,7 +201,7 @@ async def list_tools() -> list[Tool]:
                 "required": ["name", "url", "description"],
             },
         ),
-        Tool(
+        create_tool(
             name="estimate_pages",
             description="Estimate how many pages will be scraped from a config. Fast preview without downloading content.",
             inputSchema={
@@ -198,7 +225,7 @@ async def list_tools() -> list[Tool]:
                 "required": ["config_path"],
             },
         ),
-        Tool(
+        create_tool(
             name="scrape_docs",
             description="Scrape documentation and build Claude skill. Supports both single-source (legacy) and unified multi-source configs. Creates SKILL.md and reference files. Automatically detects llms.txt files for 10x faster processing. Falls back to HTML scraping if not available.",
             inputSchema={
@@ -236,7 +263,7 @@ async def list_tools() -> list[Tool]:
                 "required": ["config_path"],
             },
         ),
-        Tool(
+        create_tool(
             name="package_skill",
             description="Package a skill directory into a .zip file ready for Claude upload. Automatically uploads if ANTHROPIC_API_KEY is set.",
             inputSchema={
@@ -255,7 +282,7 @@ async def list_tools() -> list[Tool]:
                 "required": ["skill_dir"],
             },
         ),
-        Tool(
+        create_tool(
             name="upload_skill",
             description="Upload a skill .zip file to Claude automatically (requires ANTHROPIC_API_KEY)",
             inputSchema={
@@ -269,7 +296,7 @@ async def list_tools() -> list[Tool]:
                 "required": ["skill_zip"],
             },
         ),
-        Tool(
+        create_tool(
             name="list_configs",
             description="List all available preset configurations.",
             inputSchema={
@@ -277,7 +304,7 @@ async def list_tools() -> list[Tool]:
                 "properties": {},
             },
         ),
-        Tool(
+        create_tool(
             name="validate_config",
             description="Validate a config file for errors.",
             inputSchema={
@@ -291,7 +318,7 @@ async def list_tools() -> list[Tool]:
                 "required": ["config_path"],
             },
         ),
-        Tool(
+        create_tool(
             name="split_config",
             description="Split large documentation config into multiple focused skills. For 10K+ page documentation.",
             inputSchema={
@@ -320,7 +347,7 @@ async def list_tools() -> list[Tool]:
                 "required": ["config_path"],
             },
         ),
-        Tool(
+        create_tool(
             name="generate_router",
             description="Generate router/hub skill for split documentation. Creates intelligent routing to sub-skills.",
             inputSchema={
@@ -338,7 +365,7 @@ async def list_tools() -> list[Tool]:
                 "required": ["config_pattern"],
             },
         ),
-        Tool(
+        create_tool(
             name="scrape_pdf",
             description="Scrape PDF documentation and build Claude skill. Extracts text, code, and images from PDF files.",
             inputSchema={
@@ -368,7 +395,7 @@ async def list_tools() -> list[Tool]:
                 "required": [],
             },
         ),
-        Tool(
+        create_tool(
             name="scrape_github",
             description="Scrape GitHub repository and build Claude skill. Extracts README, Issues, Changelog, Releases, and code structure.",
             inputSchema={
@@ -423,7 +450,7 @@ async def list_tools() -> list[Tool]:
                 "required": [],
             },
         ),
-        Tool(
+        create_tool(
             name="install_skill",
             description="Complete one-command workflow: fetch config → scrape docs → AI enhance (MANDATORY) → package → upload. Enhancement required for quality (3/10→9/10). Takes 20-45 min depending on config size. Automatically uploads to Claude if ANTHROPIC_API_KEY is set.",
             inputSchema={
@@ -461,7 +488,7 @@ async def list_tools() -> list[Tool]:
                 "required": [],
             },
         ),
-        Tool(
+        create_tool(
             name="fetch_config",
             description="Fetch config from API, git URL, or registered source. Supports three modes: (1) Named source from registry, (2) Direct git URL, (3) API (default). List available configs or download a specific one by name.",
             inputSchema={
@@ -511,7 +538,7 @@ async def list_tools() -> list[Tool]:
                 "required": [],
             },
         ),
-        Tool(
+        create_tool(
             name="submit_config",
             description="Submit a custom config file to the community. Validates config (legacy or unified format) and creates a GitHub issue in skill-seekers-configs repo for review.",
             inputSchema={
@@ -537,7 +564,7 @@ async def list_tools() -> list[Tool]:
                 "required": [],
             },
         ),
-        Tool(
+        create_tool(
             name="add_config_source",
             description="Register a git repository as a config source. Allows fetching configs from private/team repos. Use this to set up named sources that can be referenced by fetch_config. Supports GitHub, GitLab, Gitea, Bitbucket, and custom git servers.",
             inputSchema={
@@ -579,7 +606,7 @@ async def list_tools() -> list[Tool]:
                 "required": ["name", "git_url"],
             },
         ),
-        Tool(
+        create_tool(
             name="list_config_sources",
             description="List all registered config sources. Shows git repositories that have been registered with add_config_source. Use this to see available sources for fetch_config.",
             inputSchema={
@@ -594,7 +621,7 @@ async def list_tools() -> list[Tool]:
                 "required": [],
             },
         ),
-        Tool(
+        create_tool(
             name="remove_config_source",
             description="Remove a registered config source. Deletes the source from the registry. Does not delete cached git repository data.",
             inputSchema={
@@ -612,7 +639,7 @@ async def list_tools() -> list[Tool]:
 
 
 @safe_decorator(app.call_tool() if app else lambda: lambda f: f)
-async def call_tool(name: str, arguments: Any) -> list[TextContent]:
+async def call_tool(name: str, arguments: Any) -> list["TextContentType"]:
     """Handle tool calls"""
 
     try:
@@ -651,13 +678,13 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
         elif name == "install_skill":
             return await install_skill_tool(arguments)
         else:
-            return [TextContent(type="text", text=f"Unknown tool: {name}")]
+            return [create_text_content(type="text", text=f"Unknown tool: {name}")]
 
     except Exception as e:
-        return [TextContent(type="text", text=f"Error: {str(e)}")]
+        return [create_text_content(type="text", text=f"Error: {str(e)}")]
 
 
-async def generate_config_tool(args: dict) -> list[TextContent]:
+async def generate_config_tool(args: dict) -> list["TextContentType"]:
     """Generate a config file"""
     name = args["name"]
     url = args["url"]
@@ -708,10 +735,10 @@ Next steps:
 Note: Default selectors may need adjustment for your documentation site.
 """
 
-    return [TextContent(type="text", text=result)]
+    return [create_text_content(type="text", text=result)]
 
 
-async def estimate_pages_tool(args: dict) -> list[TextContent]:
+async def estimate_pages_tool(args: dict) -> list["TextContentType"]:
     """Estimate page count"""
     config_path = args["config_path"]
     max_discovery = args.get("max_discovery", 1000)
@@ -742,12 +769,12 @@ async def estimate_pages_tool(args: dict) -> list[TextContent]:
     output = progress_msg + stdout
 
     if returncode == 0:
-        return [TextContent(type="text", text=output)]
+        return [create_text_content(type="text", text=output)]
     else:
-        return [TextContent(type="text", text=f"{output}\n\n❌ Error:\n{stderr}")]
+        return [create_text_content(type="text", text=f"{output}\n\n❌ Error:\n{stderr}")]
 
 
-async def scrape_docs_tool(args: dict) -> list[TextContent]:
+async def scrape_docs_tool(args: dict) -> list["TextContentType"]:
     """Scrape documentation - auto-detects unified vs legacy format"""
     config_path = args["config_path"]
     unlimited = args.get("unlimited", False)
@@ -854,13 +881,13 @@ async def scrape_docs_tool(args: dict) -> list[TextContent]:
     output = progress_msg + stdout
 
     if returncode == 0:
-        return [TextContent(type="text", text=output)]
+        return [create_text_content(type="text", text=output)]
     else:
         error_output = output + f"\n\n❌ Error:\n{stderr}"
-        return [TextContent(type="text", text=error_output)]
+        return [create_text_content(type="text", text=error_output)]
 
 
-async def package_skill_tool(args: dict) -> list[TextContent]:
+async def package_skill_tool(args: dict) -> list["TextContentType"]:
     """Package skill to .zip and optionally auto-upload"""
     skill_dir = args["skill_dir"]
     auto_upload = args.get("auto_upload", True)
@@ -916,12 +943,12 @@ async def package_skill_tool(args: dict) -> list[TextContent]:
             output += "\n\n✅ Skill packaged successfully!"
             output += "\n   Upload manually to https://claude.ai/skills"
 
-        return [TextContent(type="text", text=output)]
+        return [create_text_content(type="text", text=output)]
     else:
-        return [TextContent(type="text", text=f"{output}\n\n❌ Error:\n{stderr}")]
+        return [create_text_content(type="text", text=f"{output}\n\n❌ Error:\n{stderr}")]
 
 
-async def upload_skill_tool(args: dict) -> list[TextContent]:
+async def upload_skill_tool(args: dict) -> list["TextContentType"]:
     """Upload skill .zip to Claude"""
     skill_zip = args["skill_zip"]
 
@@ -939,22 +966,22 @@ async def upload_skill_tool(args: dict) -> list[TextContent]:
     output = progress_msg + stdout
 
     if returncode == 0:
-        return [TextContent(type="text", text=output)]
+        return [create_text_content(type="text", text=output)]
     else:
-        return [TextContent(type="text", text=f"{output}\n\n❌ Error:\n{stderr}")]
+        return [create_text_content(type="text", text=f"{output}\n\n❌ Error:\n{stderr}")]
 
 
-async def list_configs_tool(_args: dict) -> list[TextContent]:
+async def list_configs_tool(_args: dict) -> list["TextContentType"]:
     """List available configs"""
     configs_dir = Path("configs")
 
     if not configs_dir.exists():
-        return [TextContent(type="text", text="No configs directory found")]
+        return [create_text_content(type="text", text="No configs directory found")]
 
     configs = list(configs_dir.glob("*.json"))
 
     if not configs:
-        return [TextContent(type="text", text="No config files found")]
+        return [create_text_content(type="text", text="No config files found")]
 
     result = "📋 Available Configs:\n\n"
 
@@ -973,10 +1000,10 @@ async def list_configs_tool(_args: dict) -> list[TextContent]:
         except Exception as e:
             result += f"  • {config_file.name} - Error reading: {e}\n\n"
 
-    return [TextContent(type="text", text=result)]
+    return [create_text_content(type="text", text=result)]
 
 
-async def validate_config_tool(args: dict) -> list[TextContent]:
+async def validate_config_tool(args: dict) -> list["TextContentType"]:
     """Validate a config file - supports both legacy and unified formats"""
     config_path = args["config_path"]
 
@@ -987,7 +1014,9 @@ async def validate_config_tool(args: dict) -> list[TextContent]:
         # Check if file exists
         if not Path(config_path).exists():
             return [
-                TextContent(type="text", text=f"❌ Error: Config file not found: {config_path}")
+                create_text_content(
+                    type="text", text=f"❌ Error: Config file not found: {config_path}"
+                )
             ]
 
         # Try unified config validator first
@@ -1031,7 +1060,7 @@ async def validate_config_tool(args: dict) -> list[TextContent]:
                 result += f"  Max pages: {validator.config.get('max_pages', 'Not set')}\n"
                 result += f"  Rate limit: {validator.config.get('rate_limit', 'Not set')}s\n"
 
-            return [TextContent(type="text", text=result)]
+            return [create_text_content(type="text", text=result)]
 
         except ImportError:
             # Fall back to legacy validation
@@ -1062,13 +1091,13 @@ async def validate_config_tool(args: dict) -> list[TextContent]:
                     for warning in warnings:
                         result += f"  • {warning}\n"
 
-            return [TextContent(type="text", text=result)]
+            return [create_text_content(type="text", text=result)]
 
     except Exception as e:
-        return [TextContent(type="text", text=f"❌ Error: {str(e)}")]
+        return [create_text_content(type="text", text=f"❌ Error: {str(e)}")]
 
 
-async def split_config_tool(args: dict) -> list[TextContent]:
+async def split_config_tool(args: dict) -> list["TextContentType"]:
     """Split large config into multiple focused configs"""
     config_path = args["config_path"]
     strategy = args.get("strategy", "auto")
@@ -1100,12 +1129,12 @@ async def split_config_tool(args: dict) -> list[TextContent]:
     output = progress_msg + stdout
 
     if returncode == 0:
-        return [TextContent(type="text", text=output)]
+        return [create_text_content(type="text", text=output)]
     else:
-        return [TextContent(type="text", text=f"{output}\n\n❌ Error:\n{stderr}")]
+        return [create_text_content(type="text", text=f"{output}\n\n❌ Error:\n{stderr}")]
 
 
-async def generate_router_tool(args: dict) -> list[TextContent]:
+async def generate_router_tool(args: dict) -> list["TextContentType"]:
     """Generate router skill for split documentation"""
     import glob
 
@@ -1117,7 +1146,9 @@ async def generate_router_tool(args: dict) -> list[TextContent]:
 
     if not config_files:
         return [
-            TextContent(type="text", text=f"❌ No config files match pattern: {config_pattern}")
+            create_text_content(
+                type="text", text=f"❌ No config files match pattern: {config_pattern}"
+            )
         ]
 
     # Run generate_router.py
@@ -1140,12 +1171,12 @@ async def generate_router_tool(args: dict) -> list[TextContent]:
     output = progress_msg + stdout
 
     if returncode == 0:
-        return [TextContent(type="text", text=output)]
+        return [create_text_content(type="text", text=output)]
     else:
-        return [TextContent(type="text", text=f"{output}\n\n❌ Error:\n{stderr}")]
+        return [create_text_content(type="text", text=f"{output}\n\n❌ Error:\n{stderr}")]
 
 
-async def scrape_pdf_tool(args: dict) -> list[TextContent]:
+async def scrape_pdf_tool(args: dict) -> list["TextContentType"]:
     """Scrape PDF documentation and build skill"""
     config_path = args.get("config_path")
     pdf_path = args.get("pdf_path")
@@ -1172,7 +1203,7 @@ async def scrape_pdf_tool(args: dict) -> list[TextContent]:
 
     else:
         return [
-            TextContent(
+            create_text_content(
                 type="text", text="❌ Error: Must specify --config, --pdf + --name, or --from-json"
             )
         ]
@@ -1188,12 +1219,12 @@ async def scrape_pdf_tool(args: dict) -> list[TextContent]:
     output = progress_msg + stdout
 
     if returncode == 0:
-        return [TextContent(type="text", text=output)]
+        return [create_text_content(type="text", text=output)]
     else:
-        return [TextContent(type="text", text=f"{output}\n\n❌ Error:\n{stderr}")]
+        return [create_text_content(type="text", text=f"{output}\n\n❌ Error:\n{stderr}")]
 
 
-async def scrape_github_tool(args: dict) -> list[TextContent]:
+async def scrape_github_tool(args: dict) -> list["TextContentType"]:
     """Scrape GitHub repository to Claude skill (C1.11)"""
     repo = args.get("repo")
     config_path = args.get("config_path")
@@ -1234,7 +1265,7 @@ async def scrape_github_tool(args: dict) -> list[TextContent]:
             cmd.append("--scrape-only")
 
     else:
-        return [TextContent(type="text", text="❌ Error: Must specify --repo or --config")]
+        return [create_text_content(type="text", text="❌ Error: Must specify --repo or --config")]
 
     # Run github_scraper.py with streaming (can take a while)
     timeout = 600  # 10 minutes for GitHub scraping
@@ -1247,12 +1278,12 @@ async def scrape_github_tool(args: dict) -> list[TextContent]:
     output = progress_msg + stdout
 
     if returncode == 0:
-        return [TextContent(type="text", text=output)]
+        return [create_text_content(type="text", text=output)]
     else:
-        return [TextContent(type="text", text=f"{output}\n\n❌ Error:\n{stderr}")]
+        return [create_text_content(type="text", text=f"{output}\n\n❌ Error:\n{stderr}")]
 
 
-async def fetch_config_tool(args: dict) -> list[TextContent]:
+async def fetch_config_tool(args: dict) -> list["TextContentType"]:
     """Fetch config from API, git URL, or named source"""
     from skill_seekers.mcp.git_repo import GitConfigRepo
     from skill_seekers.mcp.source_manager import SourceManager
@@ -1274,7 +1305,7 @@ async def fetch_config_tool(args: dict) -> list[TextContent]:
         if source_name:
             if not config_name:
                 return [
-                    TextContent(
+                    create_text_content(
                         type="text",
                         text="❌ Error: config_name is required when using source parameter",
                     )
@@ -1285,7 +1316,7 @@ async def fetch_config_tool(args: dict) -> list[TextContent]:
             try:
                 source = source_manager.get_source(source_name)
             except KeyError as e:
-                return [TextContent(type="text", text=f"❌ {str(e)}")]
+                return [create_text_content(type="text", text=f"❌ {str(e)}")]
 
             git_url = source["git_url"]
             branch = source.get("branch", branch)
@@ -1306,15 +1337,15 @@ async def fetch_config_tool(args: dict) -> list[TextContent]:
                     force_refresh=force_refresh,
                 )
             except Exception as e:
-                return [TextContent(type="text", text=f"❌ Git error: {str(e)}")]
+                return [create_text_content(type="text", text=f"❌ Git error: {str(e)}")]
 
             # Load config from repository
             try:
                 config_data = git_repo.get_config(repo_path, config_name)
             except FileNotFoundError as e:
-                return [TextContent(type="text", text=f"❌ {str(e)}")]
+                return [create_text_content(type="text", text=f"❌ {str(e)}")]
             except ValueError as e:
-                return [TextContent(type="text", text=f"❌ {str(e)}")]
+                return [create_text_content(type="text", text=f"❌ {str(e)}")]
 
             # Save to destination
             dest_path = Path(destination)
@@ -1340,13 +1371,13 @@ Next steps:
 
 💡 Manage sources: Use add_config_source, list_config_sources, remove_config_source tools
 """
-            return [TextContent(type="text", text=result)]
+            return [create_text_content(type="text", text=result)]
 
         # MODE 2: Direct Git URL
         elif git_url:
             if not config_name:
                 return [
-                    TextContent(
+                    create_text_content(
                         type="text",
                         text="❌ Error: config_name is required when using git_url parameter",
                     )
@@ -1365,17 +1396,17 @@ Next steps:
                     force_refresh=force_refresh,
                 )
             except ValueError as e:
-                return [TextContent(type="text", text=f"❌ Invalid git URL: {str(e)}")]
+                return [create_text_content(type="text", text=f"❌ Invalid git URL: {str(e)}")]
             except Exception as e:
-                return [TextContent(type="text", text=f"❌ Git error: {str(e)}")]
+                return [create_text_content(type="text", text=f"❌ Git error: {str(e)}")]
 
             # Load config from repository
             try:
                 config_data = git_repo.get_config(repo_path, config_name)
             except FileNotFoundError as e:
-                return [TextContent(type="text", text=f"❌ {str(e)}")]
+                return [create_text_content(type="text", text=f"❌ {str(e)}")]
             except ValueError as e:
-                return [TextContent(type="text", text=f"❌ {str(e)}")]
+                return [create_text_content(type="text", text=f"❌ {str(e)}")]
 
             # Save to destination
             dest_path = Path(destination)
@@ -1400,7 +1431,7 @@ Next steps:
 
 💡 Register this source: Use add_config_source to save for future use
 """
-            return [TextContent(type="text", text=result)]
+            return [create_text_content(type="text", text=result)]
 
         # MODE 3: API (existing, backward compatible)
         else:
@@ -1430,7 +1461,7 @@ Next steps:
                     result += "\n"
 
                     # Group by category
-                    by_category = {}
+                    by_category: dict[str, list[dict[str, Any]]] = {}
                     for config in configs:
                         cat = config.get("category", "uncategorized")
                         if cat not in by_category:
@@ -1453,12 +1484,12 @@ Next steps:
                     )
                     result += f"📚 API Docs: {API_BASE_URL}/docs\n"
 
-                    return [TextContent(type="text", text=result)]
+                    return [create_text_content(type="text", text=result)]
 
                 # Download specific config
                 if not config_name:
                     return [
-                        TextContent(
+                        create_text_content(
                             type="text",
                             text="❌ Error: Please provide config_name or set list_available=true",
                         )
@@ -1470,7 +1501,7 @@ Next steps:
 
                 if detail_response.status_code == 404:
                     return [
-                        TextContent(
+                        create_text_content(
                             type="text",
                             text=f"❌ Config '{config_name}' not found. Use list_available=true to see available configs.",
                         )
@@ -1483,7 +1514,7 @@ Next steps:
                 download_url = config_info.get("download_url")
                 if not download_url:
                     return [
-                        TextContent(
+                        create_text_content(
                             type="text",
                             text=f"❌ Config '{config_name}' has no download_url. Contact support.",
                         )
@@ -1524,24 +1555,26 @@ Next steps:
 💡 More configs: Use list_available=true to see all available configs
 """
 
-                return [TextContent(type="text", text=result)]
+                return [create_text_content(type="text", text=result)]
 
     except httpx.HTTPError as e:
         return [
-            TextContent(
+            create_text_content(
                 type="text",
                 text=f"❌ HTTP Error: {str(e)}\n\nCheck your internet connection or try again later.",
             )
         ]
     except json.JSONDecodeError as e:
         return [
-            TextContent(type="text", text=f"❌ JSON Error: Invalid response from API: {str(e)}")
+            create_text_content(
+                type="text", text=f"❌ JSON Error: Invalid response from API: {str(e)}"
+            )
         ]
     except Exception as e:
-        return [TextContent(type="text", text=f"❌ Error: {str(e)}")]
+        return [create_text_content(type="text", text=f"❌ Error: {str(e)}")]
 
 
-async def install_skill_tool(args: dict) -> list[TextContent]:
+async def install_skill_tool(args: dict) -> list["TextContentType"]:
     """
     Complete skill installation workflow.
 
@@ -1577,7 +1610,7 @@ async def install_skill_tool(args: dict) -> list[TextContent]:
     # Validation: Must provide exactly one of config_name or config_path
     if not config_name and not config_path:
         return [
-            TextContent(
+            create_text_content(
                 type="text",
                 text="❌ Error: Must provide either config_name or config_path\n\nExamples:\n  install_skill(config_name='react')\n  install_skill(config_path='configs/custom.json')",
             )
@@ -1585,7 +1618,7 @@ async def install_skill_tool(args: dict) -> list[TextContent]:
 
     if config_name and config_path:
         return [
-            TextContent(
+            create_text_content(
                 type="text",
                 text="❌ Error: Cannot provide both config_name and config_path\n\nChoose one:\n  - config_name: Fetch from API (e.g., 'react')\n  - config_path: Use existing file (e.g., 'configs/custom.json')",
             )
@@ -1602,13 +1635,16 @@ async def install_skill_tool(args: dict) -> list[TextContent]:
         output_lines.append("")
 
     # Track workflow state
-    workflow_state = {
+    workflow_state: dict[str, Any] = {
         "config_path": config_path,
         "skill_name": None,
         "skill_dir": None,
         "zip_path": None,
         "phases_completed": [],
     }
+
+    # Local variable to track API key presence
+    has_api_key: str = ""
 
     try:
         # ===== PHASE 1: Fetch Config (if needed) =====
@@ -1638,7 +1674,7 @@ async def install_skill_tool(args: dict) -> list[TextContent]:
                     output_lines.append(f"✅ Config fetched: {workflow_state['config_path']}")
                 else:
                     return [
-                        TextContent(
+                        create_text_content(
                             type="text",
                             text="\n".join(output_lines) + "\n\n❌ Failed to fetch config",
                         )
@@ -1667,7 +1703,7 @@ async def install_skill_tool(args: dict) -> list[TextContent]:
                     workflow_state["skill_name"] = config.get("name", "unknown")
             except Exception as e:
                 return [
-                    TextContent(
+                    create_text_content(
                         type="text",
                         text="\n".join(output_lines) + f"\n\n❌ Failed to read config: {str(e)}",
                     )
@@ -1694,7 +1730,7 @@ async def install_skill_tool(args: dict) -> list[TextContent]:
             # Check for success
             if "❌" in scrape_output:
                 return [
-                    TextContent(
+                    create_text_content(
                         type="text",
                         text="\n".join(output_lines) + "\n\n❌ Scraping failed - see error above",
                     )
@@ -1738,7 +1774,7 @@ async def install_skill_tool(args: dict) -> list[TextContent]:
             if returncode != 0:
                 output_lines.append(f"\n❌ Enhancement failed (exit code {returncode}):")
                 output_lines.append(stderr if stderr else stdout)
-                return [TextContent(type="text", text="\n".join(output_lines))]
+                return [create_text_content(type="text", text="\n".join(output_lines))]
 
             output_lines.append(stdout)
             workflow_state["phases_completed"].append("enhance_skill")
@@ -1856,7 +1892,7 @@ async def install_skill_tool(args: dict) -> list[TextContent]:
             else:
                 output_lines.append(f"  install_skill(config_path='{config_path}')")
 
-        return [TextContent(type="text", text="\n".join(output_lines))]
+        return [create_text_content(type="text", text="\n".join(output_lines))]
 
     except Exception as e:
         output_lines.append("")
@@ -1865,16 +1901,16 @@ async def install_skill_tool(args: dict) -> list[TextContent]:
         output_lines.append("Phases completed before failure:")
         for phase in workflow_state["phases_completed"]:
             output_lines.append(f"  ✓ {phase}")
-        return [TextContent(type="text", text="\n".join(output_lines))]
+        return [create_text_content(type="text", text="\n".join(output_lines))]
 
 
-async def submit_config_tool(args: dict) -> list[TextContent]:
+async def submit_config_tool(args: dict) -> list["TextContentType"]:
     """Submit a custom config to skill-seekers-configs repository via GitHub issue"""
     try:
         from github import Github, GithubException
     except ImportError:
         return [
-            TextContent(
+            create_text_content(
                 type="text",
                 text="❌ Error: PyGithub not installed.\n\nInstall with: pip install PyGithub",
             )
@@ -1891,7 +1927,9 @@ async def submit_config_tool(args: dict) -> list[TextContent]:
             config_file = Path(config_path)
             if not config_file.exists():
                 return [
-                    TextContent(type="text", text=f"❌ Error: Config file not found: {config_path}")
+                    create_text_content(
+                        type="text", text=f"❌ Error: Config file not found: {config_path}"
+                    )
                 ]
 
             with open(config_file) as f:
@@ -1904,11 +1942,11 @@ async def submit_config_tool(args: dict) -> list[TextContent]:
                 config_data = json.loads(config_json_str)
                 config_name = config_data.get("name", "unnamed")
             except json.JSONDecodeError as e:
-                return [TextContent(type="text", text=f"❌ Error: Invalid JSON: {str(e)}")]
+                return [create_text_content(type="text", text=f"❌ Error: Invalid JSON: {str(e)}")]
 
         else:
             return [
-                TextContent(
+                create_text_content(
                     type="text", text="❌ Error: Must provide either config_path or config_json"
                 )
             ]
@@ -1916,7 +1954,7 @@ async def submit_config_tool(args: dict) -> list[TextContent]:
         # Use ConfigValidator for comprehensive validation
         if ConfigValidator is None:
             return [
-                TextContent(
+                create_text_content(
                     type="text",
                     text="❌ Error: ConfigValidator not available. Please ensure config_validator.py is in the CLI directory.",
                 )
@@ -1976,7 +2014,7 @@ Please fix these issues and try again.
 
 📚 Example configs: https://github.com/yusufkaraaslan/skill-seekers-configs/tree/main/official
 """
-            return [TextContent(type="text", text=error_msg)]
+            return [create_text_content(type="text", text=error_msg)]
 
         # Detect category based on config format and content
         if is_unified:
@@ -2031,7 +2069,7 @@ Please fix these issues and try again.
         # Check for GitHub token
         if not github_token:
             return [
-                TextContent(
+                create_text_content(
                     type="text",
                     text="❌ Error: GitHub token required.\n\nProvide github_token parameter or set GITHUB_TOKEN environment variable.\n\nCreate token at: https://github.com/settings/tokens",
                 )
@@ -2102,21 +2140,21 @@ What happens next:
 📚 All configs: https://github.com/yusufkaraaslan/skill-seekers-configs
 """
 
-            return [TextContent(type="text", text=result)]
+            return [create_text_content(type="text", text=result)]
 
         except GithubException as e:
             return [
-                TextContent(
+                create_text_content(
                     type="text",
                     text=f"❌ GitHub Error: {str(e)}\n\nCheck your token permissions (needs 'repo' or 'public_repo' scope).",
                 )
             ]
 
     except Exception as e:
-        return [TextContent(type="text", text=f"❌ Error: {str(e)}")]
+        return [create_text_content(type="text", text=f"❌ Error: {str(e)}")]
 
 
-async def add_config_source_tool(args: dict) -> list[TextContent]:
+async def add_config_source_tool(args: dict) -> list["TextContentType"]:
     """Register a git repository as a config source"""
     from skill_seekers.mcp.source_manager import SourceManager
 
@@ -2131,9 +2169,11 @@ async def add_config_source_tool(args: dict) -> list[TextContent]:
     try:
         # Validate required parameters
         if not name:
-            return [TextContent(type="text", text="❌ Error: 'name' parameter is required")]
+            return [create_text_content(type="text", text="❌ Error: 'name' parameter is required")]
         if not git_url:
-            return [TextContent(type="text", text="❌ Error: 'git_url' parameter is required")]
+            return [
+                create_text_content(type="text", text="❌ Error: 'git_url' parameter is required")
+            ]
 
         # Add source
         source_manager = SourceManager()
@@ -2174,15 +2214,15 @@ Usage:
 💡 Make sure to set {source.get("token_env", "GIT_TOKEN")} environment variable for private repos
 """
 
-        return [TextContent(type="text", text=result)]
+        return [create_text_content(type="text", text=result)]
 
     except ValueError as e:
-        return [TextContent(type="text", text=f"❌ Validation Error: {str(e)}")]
+        return [create_text_content(type="text", text=f"❌ Validation Error: {str(e)}")]
     except Exception as e:
-        return [TextContent(type="text", text=f"❌ Error: {str(e)}")]
+        return [create_text_content(type="text", text=f"❌ Error: {str(e)}")]
 
 
-async def list_config_sources_tool(args: dict) -> list[TextContent]:
+async def list_config_sources_tool(args: dict) -> list["TextContentType"]:
     """List all registered config sources"""
     from skill_seekers.mcp.source_manager import SourceManager
 
@@ -2203,7 +2243,7 @@ To add a source:
 
 💡 Once added, use: fetch_config(source="team", config_name="...")
 """
-            return [TextContent(type="text", text=result)]
+            return [create_text_content(type="text", text=result)]
 
         # Format sources list
         result = f"📋 Config Sources ({len(sources)} total"
@@ -2231,13 +2271,13 @@ To add a source:
   remove_config_source(name="SOURCE_NAME")
 """
 
-        return [TextContent(type="text", text=result)]
+        return [create_text_content(type="text", text=result)]
 
     except Exception as e:
-        return [TextContent(type="text", text=f"❌ Error: {str(e)}")]
+        return [create_text_content(type="text", text=f"❌ Error: {str(e)}")]
 
 
-async def remove_config_source_tool(args: dict) -> list[TextContent]:
+async def remove_config_source_tool(args: dict) -> list["TextContentType"]:
     """Remove a registered config source"""
     from skill_seekers.mcp.source_manager import SourceManager
 
@@ -2246,7 +2286,7 @@ async def remove_config_source_tool(args: dict) -> list[TextContent]:
     try:
         # Validate required parameter
         if not name:
-            return [TextContent(type="text", text="❌ Error: 'name' parameter is required")]
+            return [create_text_content(type="text", text="❌ Error: 'name' parameter is required")]
 
         # Remove source
         source_manager = SourceManager()
@@ -2267,7 +2307,7 @@ Next steps:
   # Add a different source
   add_config_source(name="...", git_url="...")
 """
-            return [TextContent(type="text", text=result)]
+            return [create_text_content(type="text", text=result)]
         else:
             # Not found - show available sources
             sources = source_manager.list_sources()
@@ -2280,10 +2320,10 @@ Available sources: {", ".join(available) if available else "none"}
 To see all sources:
   list_config_sources()
 """
-            return [TextContent(type="text", text=result)]
+            return [create_text_content(type="text", text=result)]
 
     except Exception as e:
-        return [TextContent(type="text", text=f"❌ Error: {str(e)}")]
+        return [create_text_content(type="text", text=f"❌ Error: {str(e)}")]
 
 
 async def main():

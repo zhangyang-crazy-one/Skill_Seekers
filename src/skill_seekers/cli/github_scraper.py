@@ -21,10 +21,12 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, List
 
 try:
     from github import Github, GithubException, Repository
+    from github.ContentFile import ContentFile
+    from github.Issue import Issue
     from github.GithubException import RateLimitExceededException
 except ImportError:
     print("Error: PyGithub not installed. Run: pip install PyGithub")
@@ -239,8 +241,7 @@ class GitHubScraper:
         self.skill_dir = f"output/{self.name}"
         self.data_file = f"output/{self.name}_github_data.json"
 
-        # Extracted data storage
-        self.extracted_data = {
+        self.extracted_data: dict[str, Any] = {
             "repo_info": {},
             "readme": "",
             "file_tree": [],
@@ -364,9 +365,20 @@ class GitHubScraper:
             File content as string, or None if file not found/error
         """
         try:
-            content = self.repo.get_contents(file_path)
-            if not content:
+            if self.repo is None:
                 return None
+
+            content_result = self.repo.get_contents(file_path)
+            if not content_result:
+                return None
+
+            # Handle list result (should be single file, take first)
+            if isinstance(content_result, list):
+                if not content_result:
+                    return None
+                content = content_result[0]
+            else:
+                content = content_result
 
             # Handle symlinks - follow the target to get actual file
             if hasattr(content, "type") and content.type == "symlink":
@@ -375,7 +387,13 @@ class GitHubScraper:
                     target = target.strip()
                     logger.debug(f"File {file_path} is a symlink to {target}, following...")
                     try:
-                        content = self.repo.get_contents(target)
+                        symlink_result = self.repo.get_contents(target)
+                        if isinstance(symlink_result, list):
+                            if not symlink_result:
+                                return None
+                            content = symlink_result[0]
+                        else:
+                            content = symlink_result
                     except GithubException as e:
                         logger.warning(f"Failed to follow symlink {file_path} -> {target}: {e}")
                         return None
@@ -479,9 +497,13 @@ class GitHubScraper:
         if self.include_code:
             self._extract_signatures_and_tests()
 
-    def _extract_languages(self):
+    def _extract_languages(self) -> None:
         """C1.4: Detect programming languages in repository."""
         logger.info("Detecting programming languages...")
+
+        if self.repo is None:
+            logger.warning("Repository not initialized - skipping language detection")
+            return
 
         try:
             languages = self.repo.get_languages()
@@ -502,7 +524,7 @@ class GitHubScraper:
         except GithubException as e:
             logger.warning(f"Could not fetch languages: {e}")
 
-    def should_exclude_dir(self, dir_name: str, dir_path: str = None) -> bool:
+    def should_exclude_dir(self, dir_name: str, dir_path: Optional[str] = None) -> bool:
         """
         Check if directory should be excluded from analysis.
 
@@ -577,28 +599,28 @@ class GitHubScraper:
             # GitHub API mode - limited by API rate limits
             self._extract_file_tree_github()
 
-    def _extract_file_tree_local(self):
+    def _extract_file_tree_local(self) -> None:
         """Extract file tree from local filesystem (unlimited files)."""
+        if self.local_repo_path is None:
+            logger.error("Local repository path not set")
+            return
+
         if not os.path.exists(self.local_repo_path):
             logger.error(f"Local repository path not found: {self.local_repo_path}")
             return
 
-        # Log exclusions for debugging
         logger.info(
             f"Directory exclusions ({len(self.excluded_dirs)} total): {sorted(list(self.excluded_dirs)[:10])}"
         )
 
-        file_tree = []
+        file_tree: List[dict[str, Any]] = []
         excluded_count = 0
         for root, dirs, files in os.walk(self.local_repo_path):
-            # Calculate relative path from repo root first (needed for exclusion checks)
             rel_root = os.path.relpath(root, self.local_repo_path)
             if rel_root == ".":
                 rel_root = ""
 
-            # Exclude directories in-place to prevent os.walk from descending into them
-            # Pass both dir name and full path for path-based exclusions
-            filtered_dirs = []
+            filtered_dirs: List[str] = []
             for d in dirs:
                 dir_path = os.path.join(rel_root, d) if rel_root else d
                 if self.should_exclude_dir(d, dir_path):
@@ -608,17 +630,15 @@ class GitHubScraper:
                     filtered_dirs.append(d)
             dirs[:] = filtered_dirs
 
-            # Add directories
             for dir_name in dirs:
                 dir_path = os.path.join(rel_root, dir_name) if rel_root else dir_name
                 file_tree.append({"path": dir_path, "type": "dir", "size": None})
 
-            # Add files
             for file_name in files:
                 file_path = os.path.join(rel_root, file_name) if rel_root else file_name
                 full_path = os.path.join(root, file_name)
                 try:
-                    file_size = os.path.getsize(full_path)
+                    file_size: int | None = os.path.getsize(full_path)
                 except OSError:
                     file_size = None
 
@@ -629,16 +649,26 @@ class GitHubScraper:
             f"File tree built (local mode): {len(file_tree)} items ({excluded_count} directories excluded)"
         )
 
-    def _extract_file_tree_github(self):
+    def _extract_file_tree_github(self) -> None:
         """Extract file tree from GitHub API (rate-limited)."""
+        if self.repo is None:
+            logger.warning("Repository not initialized - skipping file tree extraction")
+            return
+
         try:
-            contents = self.repo.get_contents("")
-            file_tree = []
+            contents_result = self.repo.get_contents("")
+            file_tree: List[dict[str, Any]] = []
+
+            contents: List[ContentFile]
+            if isinstance(contents_result, list):
+                contents = contents_result
+            else:
+                contents = [contents_result]
 
             while contents:
                 file_content = contents.pop(0)
 
-                file_info = {
+                file_info: dict[str, Any] = {
                     "path": file_content.path,
                     "type": file_content.type,
                     "size": file_content.size if file_content.type == "file" else None,
@@ -646,7 +676,11 @@ class GitHubScraper:
                 file_tree.append(file_info)
 
                 if file_content.type == "dir":
-                    contents.extend(self.repo.get_contents(file_content.path))
+                    sub_contents = self.repo.get_contents(file_content.path)
+                    if isinstance(sub_contents, list):
+                        contents.extend(sub_contents)
+                    else:
+                        contents.append(sub_contents)
 
             self.extracted_data["file_tree"] = file_tree
             logger.info(f"File tree built (GitHub API mode): {len(file_tree)} items")
@@ -717,16 +751,26 @@ class GitHubScraper:
 
             # Analyze this file
             try:
-                # Read file content based on mode
+                content: str
                 if self.local_repo_path:
-                    # Local mode - read from filesystem
                     full_path = os.path.join(self.local_repo_path, file_path)
                     with open(full_path, encoding="utf-8") as f:
                         content = f.read()
                 else:
-                    # GitHub API mode - fetch from API
-                    file_content = self.repo.get_contents(file_path)
-                    content = file_content.decoded_content.decode("utf-8")
+                    if self.repo is None:
+                        continue
+                    file_content_result = self.repo.get_contents(file_path)
+                    if isinstance(file_content_result, list):
+                        if not file_content_result:
+                            continue
+                        single_file = file_content_result[0]
+                    else:
+                        single_file = file_content_result
+                    decoded = single_file.decoded_content
+                    if isinstance(decoded, bytes):
+                        content = decoded.decode("utf-8")
+                    else:
+                        content = str(decoded)
 
                 analysis_result = self.code_analyzer.analyze_file(
                     file_path, content, primary_language
@@ -769,21 +813,24 @@ class GitHubScraper:
             f"Code analysis complete: {len(analyzed_files)} files, {total_classes} classes, {total_functions} functions"
         )
 
-    def _extract_issues(self):
+    def _extract_issues(self) -> None:
         """C1.7: Extract GitHub Issues (open/closed, labels, milestones)."""
         logger.info(f"Extracting GitHub Issues (max {self.max_issues})...")
 
+        if self.repo is None:
+            logger.warning("Repository not initialized - skipping issues extraction")
+            return
+
         try:
-            # Fetch recent issues (open + closed)
             issues = self.repo.get_issues(state="all", sort="updated", direction="desc")
 
-            issue_list = []
+            issue_list: List[dict[str, Any]] = []
+            issue: Any
             for issue in issues[: self.max_issues]:
-                # Skip pull requests (they appear in issues)
                 if issue.pull_request:
                     continue
 
-                issue_data = {
+                issue_data: dict[str, Any] = {
                     "number": issue.number,
                     "title": issue.title,
                     "state": issue.state,
@@ -793,7 +840,7 @@ class GitHubScraper:
                     "updated_at": issue.updated_at.isoformat() if issue.updated_at else None,
                     "closed_at": issue.closed_at.isoformat() if issue.closed_at else None,
                     "url": issue.html_url,
-                    "body": issue.body[:500] if issue.body else None,  # First 500 chars
+                    "body": issue.body[:500] if issue.body else None,
                 }
                 issue_list.append(issue_data)
 
@@ -828,16 +875,20 @@ class GitHubScraper:
 
         logger.warning("No CHANGELOG found in repository")
 
-    def _extract_releases(self):
+    def _extract_releases(self) -> None:
         """C1.9: Extract GitHub Releases with version history."""
         logger.info("Extracting GitHub Releases...")
+
+        if self.repo is None:
+            logger.warning("Repository not initialized - skipping releases extraction")
+            return
 
         try:
             releases = self.repo.get_releases()
 
-            release_list = []
+            release_list: List[dict[str, Any]] = []
             for release in releases:
-                release_data = {
+                release_data: dict[str, Any] = {
                     "tag_name": release.tag_name,
                     "name": release.title,
                     "body": release.body,
@@ -1081,9 +1132,8 @@ Use this skill when you need to:
         if not patterns_data:
             return ""
 
-        # Count patterns by type (deduplicate by class, keep highest confidence)
-        pattern_counts = {}
-        by_class = {}
+        pattern_counts: dict[str, int] = {}
+        by_class: dict[str, Any] = {}
 
         for pattern_file in patterns_data:
             for pattern in pattern_file.get("patterns", []):

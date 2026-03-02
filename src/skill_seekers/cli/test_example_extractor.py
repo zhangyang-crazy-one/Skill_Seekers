@@ -35,7 +35,7 @@ import logging
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -267,7 +267,7 @@ class PythonTestAnalyzer:
         """Extract setUp method code"""
         for node in class_node.body:
             if isinstance(node, ast.FunctionDef) and node.name == "setUp":
-                return ast.unparse(node.body)
+                return "\n".join(ast.unparse(stmt) for stmt in node.body)
         return None
 
     def _extract_fixtures(self, func_node: ast.FunctionDef) -> str | None:
@@ -503,12 +503,12 @@ class PythonTestAnalyzer:
         imports: list[str],
     ) -> list[TestExample]:
         """Find multi-step workflow patterns (integration tests)"""
-        examples = []
+        examples: list[TestExample] = []
 
         # Check if this looks like an integration test (3+ meaningful steps)
         if len(func_node.body) >= 3 and self._is_integration_test(func_node):
             # Extract the full workflow
-            code = ast.unparse(func_node.body)
+            code = "\n".join(ast.unparse(stmt) for stmt in func_node.body)
 
             # Skip if too long (> 30 lines)
             if code.count("\n") > 30:
@@ -717,10 +717,13 @@ class GenericTestAnalyzer:
 
         return examples
 
+CategoryType = Literal["instantiation", "method_call", "config", "setup", "workflow"]
+
+
     def _create_example(
         self,
         test_name: str,
-        category: str,
+        category: CategoryType,
         code: str,
         language: str,
         file_path: str,

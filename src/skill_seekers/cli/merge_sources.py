@@ -25,8 +25,24 @@ from typing import Any, Optional
 from .conflict_detector import Conflict, ConflictDetector
 
 # Import three-stream data classes (Phase 1)
+# Declare as Any to allow either class or None
+ThreeStreamData: Any
+CodeStream: Any
+DocsStream: Any
+InsightsStream: Any
+
 try:
-    from .github_fetcher import CodeStream, DocsStream, InsightsStream, ThreeStreamData
+    from .github_fetcher import (
+        CodeStream as _CodeStream,
+        DocsStream as _DocsStream,
+        InsightsStream as _InsightsStream,
+        ThreeStreamData as _ThreeStreamData,
+    )
+
+    ThreeStreamData = _ThreeStreamData
+    CodeStream = _CodeStream
+    DocsStream = _DocsStream
+    InsightsStream = _InsightsStream
 except ImportError:
     # Fallback if github_fetcher not available
     ThreeStreamData = None
@@ -52,7 +68,7 @@ def categorize_issues_by_topic(
     Returns:
         Dict mapping topic to relevant issues
     """
-    categorized = {topic: [] for topic in topics}
+    categorized: dict[str, list[dict[str, Any]]] = {topic: [] for topic in topics}
     categorized["other"] = []
 
     all_issues = problems + solutions
@@ -234,7 +250,7 @@ class RuleBasedMerger:
         docs_data: dict,
         github_data: dict,
         conflicts: list[Conflict],
-        github_streams: Optional["ThreeStreamData"] = None,
+        github_streams: Any = None,
     ):
         """
         Initialize rule-based merger with GitHub streams support.
@@ -327,10 +343,11 @@ class RuleBasedMerger:
             merged_data["conflict_summary"] = hybrid_content.get("conflict_summary", {})
             merged_data["issue_links"] = hybrid_content.get("issue_links", {})
 
-            logger.info(
-                f"Added GitHub context: {len(self.github_insights.get('common_problems', []))} problems, "
-                f"{len(self.github_insights.get('known_solutions', []))} solutions"
-            )
+            if self.github_insights:
+                logger.info(
+                    f"Added GitHub context: {len(self.github_insights.get('common_problems', []))} problems, "
+                    f"{len(self.github_insights.get('known_solutions', []))} solutions"
+                )
 
         return merged_data
 
@@ -459,7 +476,7 @@ class ClaudeEnhancedMerger:
         docs_data: dict,
         github_data: dict,
         conflicts: list[Conflict],
-        github_streams: Optional["ThreeStreamData"] = None,
+        github_streams: Any = None,
     ):
         """
         Initialize Claude-enhanced merger with GitHub streams support.
@@ -619,7 +636,7 @@ Take your time to analyze each conflict carefully. The goal is to create the mos
 
     def _count_by_field(self, field: str) -> dict[str, int]:
         """Count conflicts by a specific field."""
-        counts = {}
+        counts: dict[str, int] = {}
         for conflict in self.conflicts:
             value = getattr(conflict, field)
             counts[value] = counts.get(value, 0) + 1
@@ -713,7 +730,7 @@ def merge_sources(
     github_data_path: str,
     output_path: str,
     mode: str = "rule-based",
-    github_streams: Optional["ThreeStreamData"] = None,
+    github_streams: Any = None,
 ) -> dict[str, Any]:
     """
     Merge documentation and GitHub data with optional GitHub streams (Phase 3).
@@ -760,6 +777,7 @@ def merge_sources(
             logger.info(f"  - Insights stream: {problems} problems, {solutions} solutions")
 
     # Merge based on mode
+    merger: RuleBasedMerger | ClaudeEnhancedMerger
     if mode == "claude-enhanced":
         merger = ClaudeEnhancedMerger(docs_data, github_data, conflicts, github_streams)
     else:

@@ -17,12 +17,15 @@ import os
 import re
 import sys
 from pathlib import Path
+from typing import Any, Optional
 
 # Import the PDF extractor
 from .pdf_extractor_poc import PDFExtractor
 
 
-def infer_description_from_pdf(pdf_metadata: dict = None, name: str = "") -> str:
+def infer_description_from_pdf(
+    pdf_metadata: Optional[dict[Any, Any]] = None, name: str = ""
+) -> str:
     """
     Infer skill description from PDF metadata or document properties.
 
@@ -84,7 +87,7 @@ class PDFToSkillConverter:
         self.categories = config.get("categories", {})
 
         # Extracted data
-        self.extracted_data = None
+        self.extracted_data: Optional[dict[str, Any]] = None
 
     def extract_pdf(self):
         """Extract content from PDF using pdf_extractor_poc.py"""
@@ -127,14 +130,20 @@ class PDFToSkillConverter:
         with open(json_path, encoding="utf-8") as f:
             self.extracted_data = json.load(f)
 
-        print(f"✅ Loaded {self.extracted_data['total_pages']} pages")
+        if self.extracted_data is not None:
+            print(f"✅ Loaded {self.extracted_data['total_pages']} pages")
         return True
 
     def categorize_content(self):
         """Categorize pages based on chapters or keywords"""
         print("\n📋 Categorizing content...")
 
-        categorized = {}
+        if self.extracted_data is None:
+            raise RuntimeError(
+                "No extracted data available. Call extract_pdf or load_extracted_data first."
+            )
+
+        categorized: dict[str, dict[str, Any]] = {}
 
         # Use chapters if available
         if self.extracted_data.get("chapters"):
@@ -177,7 +186,7 @@ class PDFToSkillConverter:
                     headings_text = " ".join([h["text"] for h in page.get("headings", [])]).lower()
 
                     # Score against each category
-                    scores = {}
+                    scores: dict[str, int] = {}
                     for cat_key, keywords in self.categories.items():
                         # Handle both string keywords and dict keywords (shouldn't happen, but be safe)
                         if isinstance(keywords, list):
@@ -194,7 +203,7 @@ class PDFToSkillConverter:
 
                     # Assign to highest scoring category
                     if scores:
-                        best_cat = max(scores, key=scores.get)
+                        best_cat = max(scores, key=lambda k: scores.get(k, 0))
                         categorized[best_cat]["pages"].append(page)
                     else:
                         # Default category
@@ -290,6 +299,11 @@ class PDFToSkillConverter:
         """Generate reference index"""
         filename = f"{self.skill_dir}/references/index.md"
 
+        if self.extracted_data is None:
+            raise RuntimeError("No extracted data available")
+
+        extracted_data = self.extracted_data
+
         with open(filename, "w", encoding="utf-8") as f:
             f.write(f"# {self.name.title()} Documentation Reference\n\n")
             f.write("## Categories\n\n")
@@ -299,10 +313,10 @@ class PDFToSkillConverter:
                 f.write(f"- [{cat_data['title']}]({cat_key}.md) ({page_count} pages)\n")
 
             f.write("\n## Statistics\n\n")
-            stats = self.extracted_data.get("quality_statistics", {})
-            f.write(f"- Total pages: {self.extracted_data.get('total_pages', 0)}\n")
-            f.write(f"- Code blocks: {self.extracted_data.get('total_code_blocks', 0)}\n")
-            f.write(f"- Images: {self.extracted_data.get('total_images', 0)}\n")
+            stats = extracted_data.get("quality_statistics", {})
+            f.write(f"- Total pages: {extracted_data.get('total_pages', 0)}\n")
+            f.write(f"- Code blocks: {extracted_data.get('total_code_blocks', 0)}\n")
+            f.write(f"- Images: {extracted_data.get('total_images', 0)}\n")
             if stats:
                 f.write(f"- Average code quality: {stats.get('average_quality', 0):.1f}/10\n")
                 f.write(f"- Valid code blocks: {stats.get('valid_code_blocks', 0)}\n")
@@ -312,6 +326,11 @@ class PDFToSkillConverter:
     def _generate_skill_md(self, categorized):
         """Generate main SKILL.md file (enhanced with rich content)"""
         filename = f"{self.skill_dir}/SKILL.md"
+
+        if self.extracted_data is None:
+            raise RuntimeError("No extracted data available")
+
+        extracted_data = self.extracted_data
 
         # Generate skill name (lowercase, hyphens only, max 64 chars)
         skill_name = self.name.lower().replace("_", "-").replace(" ", "-")[:64]
@@ -340,7 +359,7 @@ class PDFToSkillConverter:
 
             # Chapter Overview (PDF structure)
             f.write("## 📖 Chapter Overview\n\n")
-            total_pages = self.extracted_data.get("total_pages", 0)
+            total_pages = extracted_data.get("total_pages", 0)
             f.write(f"**Total Pages:** {total_pages}\n\n")
             f.write("**Content Breakdown:**\n\n")
             for _cat_key, cat_data in categorized.items():
@@ -356,8 +375,8 @@ class PDFToSkillConverter:
             f.write(self._format_patterns_from_content())
 
             # Enhanced code examples section (top 15, grouped by language)
-            all_code = []
-            for page in self.extracted_data["pages"]:
+            all_code: list[dict[str, Any]] = []
+            for page in extracted_data["pages"]:
                 all_code.extend(page.get("code_samples", []))
 
             # Sort by quality and get top 15
@@ -369,7 +388,7 @@ class PDFToSkillConverter:
                 f.write("*High-quality examples extracted from documentation*\n\n")
 
                 # Group by language
-                by_lang = {}
+                by_lang: dict[str, list[dict[str, Any]]] = {}
                 for code in top_code:
                     lang = code.get("language", "unknown")
                     if lang not in by_lang:
@@ -399,13 +418,13 @@ class PDFToSkillConverter:
             # Statistics
             f.write("## 📊 Documentation Statistics\n\n")
             f.write(f"- **Total Pages**: {total_pages}\n")
-            total_code_blocks = self.extracted_data.get("total_code_blocks", 0)
+            total_code_blocks = extracted_data.get("total_code_blocks", 0)
             f.write(f"- **Code Blocks**: {total_code_blocks}\n")
-            total_images = self.extracted_data.get("total_images", 0)
+            total_images = extracted_data.get("total_images", 0)
             f.write(f"- **Images/Diagrams**: {total_images}\n")
 
             # Language statistics
-            langs = self.extracted_data.get("languages_detected", {})
+            langs = extracted_data.get("languages_detected", {})
             if langs:
                 f.write(f"- **Programming Languages**: {len(langs)}\n\n")
                 f.write("**Language Breakdown:**\n\n")
@@ -414,7 +433,7 @@ class PDFToSkillConverter:
                 f.write("\n")
 
             # Quality metrics
-            quality_stats = self.extracted_data.get("quality_statistics", {})
+            quality_stats = extracted_data.get("quality_statistics", {})
             if quality_stats:
                 avg_quality = quality_stats.get("average_quality", 0)
                 valid_blocks = quality_stats.get("valid_code_blocks", 0)
@@ -441,7 +460,10 @@ class PDFToSkillConverter:
 
     def _format_key_concepts(self) -> str:
         """Extract key concepts from headings across all pages."""
-        all_headings = []
+        all_headings: list[tuple[str, str]] = []
+
+        if self.extracted_data is None:
+            return ""
 
         for page in self.extracted_data.get("pages", []):
             headings = page.get("headings", [])
@@ -478,7 +500,10 @@ class PDFToSkillConverter:
     def _format_patterns_from_content(self) -> str:
         """Extract common patterns from text content."""
         # Look for common technical patterns in text
-        patterns = []
+        patterns: list[dict[str, Any]] = []
+
+        if self.extracted_data is None:
+            return "*See reference files for detailed content*\n\n"
 
         # Simple pattern extraction from headings and emphasized text
         for page in self.extracted_data.get("pages", []):
@@ -520,7 +545,7 @@ class PDFToSkillConverter:
         content = "*Common documentation patterns found:*\n\n"
 
         # Group by type
-        by_type = {}
+        by_type: dict[str, list[dict[str, Any]]] = {}
         for pattern in patterns:
             ptype = pattern["type"]
             if ptype not in by_type:

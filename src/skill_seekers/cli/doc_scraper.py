@@ -92,21 +92,25 @@ def infer_description_from_docs(
             # Strategy 1: Try meta description tag
             meta_desc = soup.find("meta", {"name": "description"})
             if meta_desc and meta_desc.get("content"):
-                desc = meta_desc["content"].strip()
-                if len(desc) > 20:  # Meaningful length
-                    # Clean and format
-                    if len(desc) > 150:
-                        desc = desc[:147] + "..."
-                    return f"Use when {desc.lower()}"
+                content_val = meta_desc.get("content")
+                if isinstance(content_val, str):
+                    desc = content_val.strip()
+                    if len(desc) > 20:  # Meaningful length
+                        # Clean and format
+                        if len(desc) > 150:
+                            desc = desc[:147] + "..."
+                        return f"Use when {desc.lower()}"
 
             # Strategy 2: Try OpenGraph description
             og_desc = soup.find("meta", {"property": "og:description"})
             if og_desc and og_desc.get("content"):
-                desc = og_desc["content"].strip()
-                if len(desc) > 20:
-                    if len(desc) > 150:
-                        desc = desc[:147] + "..."
-                    return f"Use when {desc.lower()}"
+                og_content_val = og_desc.get("content")
+                if isinstance(og_content_val, str):
+                    desc = og_content_val.strip()
+                    if len(desc) > 20:
+                        if len(desc) > 150:
+                            desc = desc[:147] + "..."
+                        return f"Use when {desc.lower()}"
 
             # Strategy 3: Extract first meaningful paragraph from main content
             # Look for common documentation main content areas
@@ -176,7 +180,7 @@ class DocToSkillConverter:
         else:
             self.skip_llms_txt = skip_llms_txt_value
         self.llms_txt_detected = False
-        self.llms_txt_variant = None
+        self.llms_txt_variant: Optional[str] = None
         self.llms_txt_variants: list[str] = []  # Track all downloaded variants
 
         # Parallel scraping config
@@ -289,7 +293,7 @@ class DocToSkillConverter:
 
     def extract_content(self, soup: Any, url: str) -> dict[str, Any]:
         """Extract content with improved code and pattern detection"""
-        page = {
+        page: dict[str, Any] = {
             "url": url,
             "title": "",
             "content": "",
@@ -388,7 +392,7 @@ class DocToSkillConverter:
         if content.strip().startswith("<!DOCTYPE") or content.strip().startswith("<html"):
             return self._extract_html_as_markdown(content, url)
 
-        page = {
+        page: dict[str, Any] = {
             "url": url,
             "title": "",
             "content": "",
@@ -485,7 +489,7 @@ class DocToSkillConverter:
             Falls back to <body> if no semantic content container found.
             Language detection uses detect_language() method.
         """
-        page = {
+        page: dict[str, Any] = {
             "url": url,
             "title": "",
             "content": "",
@@ -864,7 +868,7 @@ class DocToSkillConverter:
         logger.info("✅ Found %d llms.txt variant(s)", len(variants))
 
         # Download ALL variants
-        downloaded = {}
+        downloaded: dict[str, dict[str, Any]] = {}
         for variant_info in variants:
             url = variant_info["url"]
             variant = variant_info["variant"]

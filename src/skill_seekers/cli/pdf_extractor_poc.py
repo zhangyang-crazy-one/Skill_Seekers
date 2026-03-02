@@ -213,7 +213,7 @@ class PDFExtractor:
 
         if len(text) < 50 and self.use_ocr:
             pix = page.get_pixmap()
-            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
 
             import numpy as np
 
@@ -769,8 +769,8 @@ class PDFExtractor:
                 }
             ]
 
-        chunks = []
-        current_chunk = []
+        chunks: list[dict] = []
+        current_chunk: list[dict] = []
         chunk_start = 0
         current_chapter = None
 
@@ -843,6 +843,7 @@ class PDFExtractor:
         for img_index, img in enumerate(image_list):
             try:
                 xref = img[0]  # Image XREF number
+                assert self.doc is not None
                 base_image = self.doc.extract_image(xref)
 
                 if not base_image:
@@ -904,6 +905,7 @@ class PDFExtractor:
             self.log(f"  Page {page_num + 1}: Using cached data")
             return cached
 
+        assert self.doc is not None
         page = self.doc.load_page(page_num)
 
         # Extract plain text (with OCR if enabled - Priority 2)
@@ -1087,7 +1089,7 @@ class PDFExtractor:
         total_tables = sum(p["tables_count"] for p in self.pages)  # NEW in Priority 2
 
         # Detect languages used
-        languages = {}
+        languages: dict[str, int] = {}
         all_code_blocks_list = []
         for page in self.pages:
             for code in page["code_samples"]:

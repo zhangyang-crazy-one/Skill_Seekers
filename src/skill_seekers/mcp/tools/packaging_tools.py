@@ -12,24 +12,39 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any, TypedDict
 
 try:
     from mcp.types import TextContent
 except ImportError:
     # Graceful degradation: Create a simple fallback class for testing
-    class TextContent:
+    class _FallbackTextContent:
         """Fallback TextContent for when MCP is not installed"""
 
-        def __init__(self, type: str, text: str):
+        def __init__(self, type: str, text: str) -> None:
             self.type = type
             self.text = text
+
+    TextContent = _FallbackTextContent  # type: ignore[misc,assignment]
+
+
+class WorkflowState(TypedDict):
+    """Type definition for workflow state tracking."""
+
+    config_path: str | None
+    skill_name: str | None
+    skill_dir: str | None
+    zip_path: str | None
+    phases_completed: list[str]
 
 
 # Path to CLI tools
 CLI_DIR = Path(__file__).parent.parent.parent / "cli"
 
 
-def run_subprocess_with_streaming(cmd: list[str], timeout: int = None) -> tuple[str, str, int]:
+def run_subprocess_with_streaming(
+    cmd: list[str], timeout: int | None = None
+) -> tuple[str, str, int]:
     """
     Run subprocess with real-time output streaming.
 
@@ -73,14 +88,20 @@ def run_subprocess_with_streaming(cmd: list[str], timeout: int = None) -> tuple[
             try:
                 import select
 
-                readable, _, _ = select.select([process.stdout, process.stderr], [], [], 0.1)
+                streams_to_watch = []
+                if process.stdout is not None:
+                    streams_to_watch.append(process.stdout)
+                if process.stderr is not None:
+                    streams_to_watch.append(process.stderr)
 
-                if process.stdout in readable:
+                readable, _, _ = select.select(streams_to_watch, [], [], 0.1)
+
+                if process.stdout is not None and process.stdout in readable:
                     line = process.stdout.readline()
                     if line:
                         stdout_lines.append(line)
 
-                if process.stderr in readable:
+                if process.stderr is not None and process.stderr in readable:
                     line = process.stderr.readline()
                     if line:
                         stderr_lines.append(line)
@@ -97,7 +118,7 @@ def run_subprocess_with_streaming(cmd: list[str], timeout: int = None) -> tuple[
 
         stdout = "".join(stdout_lines)
         stderr = "".join(stderr_lines)
-        returncode = process.returncode
+        returncode = process.returncode if process.returncode is not None else 1
 
         return stdout, stderr, returncode
 
@@ -105,7 +126,7 @@ def run_subprocess_with_streaming(cmd: list[str], timeout: int = None) -> tuple[
         return "", f"Error running subprocess: {str(e)}", 1
 
 
-async def package_skill_tool(args: dict) -> list[TextContent]:
+async def package_skill_tool(args: dict[str, Any]) -> list[Any]:
     """
     Package skill for target LLM platform and optionally auto-upload.
 
@@ -225,7 +246,7 @@ async def package_skill_tool(args: dict) -> list[TextContent]:
         return [TextContent(type="text", text=f"{output}\n\n❌ Error:\n{stderr}")]
 
 
-async def upload_skill_tool(args: dict) -> list[TextContent]:
+async def upload_skill_tool(args: dict[str, Any]) -> list[Any]:
     """
     Upload skill package to target LLM platform.
 
@@ -289,7 +310,7 @@ async def upload_skill_tool(args: dict) -> list[TextContent]:
         return [TextContent(type="text", text=f"{output}\n\n❌ Error:\n{stderr}")]
 
 
-async def enhance_skill_tool(args: dict) -> list[TextContent]:
+async def enhance_skill_tool(args: dict[str, Any]) -> list[Any]:
     """
     Enhance SKILL.md with AI using target platform's model.
 
@@ -309,7 +330,10 @@ async def enhance_skill_tool(args: dict) -> list[TextContent]:
     """
     from skill_seekers.cli.adaptors import get_adaptor
 
-    skill_dir = Path(args.get("skill_dir"))
+    skill_dir_arg = args.get("skill_dir")
+    if skill_dir_arg is None:
+        return [TextContent(type="text", text="❌ skill_dir is required")]
+    skill_dir = Path(skill_dir_arg)
     target = args.get("target", "claude")
     mode = args.get("mode", "local")
     api_key = args.get("api_key")
@@ -418,7 +442,7 @@ async def enhance_skill_tool(args: dict) -> list[TextContent]:
     return [TextContent(type="text", text="\n".join(output_lines))]
 
 
-async def install_skill_tool(args: dict) -> list[TextContent]:
+async def install_skill_tool(args: dict[str, Any]) -> list[Any]:
     """
     Complete skill installation workflow.
 
@@ -496,7 +520,7 @@ async def install_skill_tool(args: dict) -> list[TextContent]:
         output_lines.append("")
 
     # Track workflow state
-    workflow_state = {
+    workflow_state: WorkflowState = {
         "config_path": config_path,
         "skill_name": None,
         "skill_dir": None,
@@ -556,7 +580,17 @@ async def install_skill_tool(args: dict) -> list[TextContent]:
         if not dry_run:
             # Load config to get skill name
             try:
-                with open(workflow_state["config_path"]) as f:
+                config_path_val = workflow_state["config_path"]
+                if config_path_val is None:
+                    return [
+                        TextContent(
+                            type="text",
+                            text="\n".join(output_lines) + "\n\n❌ Config path is not set",
+                        )
+                    ]
+                # Cast to str after None check
+                config_path_str: str = config_path_val
+                with open(config_path_str) as f:
                     config = json.load(f)
                     workflow_state["skill_name"] = config.get("name", "unknown")
             except Exception as e:
@@ -616,10 +650,18 @@ async def install_skill_tool(args: dict) -> list[TextContent]:
         if not dry_run:
             # Run enhance_skill_local in headless mode
             # Build command directly
-            cmd = [
+            skill_dir_val = workflow_state["skill_dir"]
+            if skill_dir_val is None:
+                return [
+                    TextContent(
+                        type="text",
+                        text="\n".join(output_lines) + "\n\n❌ Skill directory not set",
+                    )
+                ]
+            cmd: list[str] = [
                 sys.executable,
                 str(CLI_DIR / "enhance_skill_local.py"),
-                workflow_state["skill_dir"],
+                skill_dir_val,
                 # Headless is default, no flag needed
             ]
 
@@ -702,6 +744,7 @@ async def install_skill_tool(args: dict) -> list[TextContent]:
         output_lines.append("")
 
         # ===== PHASE 5: Upload (Optional) =====
+        has_api_key = ""  # Initialize before conditional
         if auto_upload:
             phase_num = "5/5" if config_name else "4/4"
             output_lines.append(f"📤 PHASE {phase_num}: Upload to {adaptor.PLATFORM_NAME}")

@@ -53,7 +53,7 @@ class FunctionSignature:
     line_number: int | None = None
     is_async: bool = False
     is_method: bool = False
-    decorators: list[str] = None
+    decorators: list[str] | None = None
 
     def __post_init__(self):
         if self.decorators is None:
@@ -372,9 +372,9 @@ class CodeAnalyzer:
 
         return methods
 
-    def _parse_js_parameters(self, params_str: str) -> list[dict]:
+    def _parse_js_parameters(self, params_str: str) -> list[dict[str, Any]]:
         """Parse JavaScript parameter string."""
-        params = []
+        params: list[dict[str, Any]] = []
 
         if not params_str.strip():
             return params
@@ -463,9 +463,9 @@ class CodeAnalyzer:
 
         return {"classes": classes, "functions": functions, "comments": comments}
 
-    def _parse_cpp_parameters(self, params_str: str) -> list[dict]:
+    def _parse_cpp_parameters(self, params_str: str) -> list[dict[str, Any]]:
         """Parse C++ parameter string."""
-        params = []
+        params: list[dict[str, Any]] = []
 
         if not params_str.strip() or params_str.strip() == "void":
             return params
@@ -674,9 +674,9 @@ class CodeAnalyzer:
 
         return methods
 
-    def _parse_csharp_parameters(self, params_str: str) -> list[dict]:
+    def _parse_csharp_parameters(self, params_str: str) -> list[dict[str, Any]]:
         """Parse C# parameter string."""
-        params = []
+        params: list[dict[str, Any]] = []
 
         if not params_str.strip():
             return params
@@ -751,8 +751,8 @@ class CodeAnalyzer:
         Regex patterns based on Go language specification:
         https://go.dev/ref/spec
         """
-        classes = []  # Go doesn't have classes, but we'll extract structs
-        functions = []
+        classes: list[dict[str, Any]] = []  # Go doesn't have classes, but we'll extract structs
+        functions: list[dict[str, Any]] = []
 
         # Extract struct definitions (Go's equivalent of classes)
         struct_pattern = r"type\s+(\w+)\s+struct\s*\{"
@@ -810,9 +810,9 @@ class CodeAnalyzer:
 
         return {"classes": classes, "functions": functions, "comments": comments}
 
-    def _parse_go_parameters(self, params_str: str) -> list[dict]:
+    def _parse_go_parameters(self, params_str: str) -> list[dict[str, Any]]:
         """Parse Go parameter string."""
-        params = []
+        params: list[dict[str, Any]] = []
 
         if not params_str.strip():
             return params
@@ -860,8 +860,8 @@ class CodeAnalyzer:
         Regex patterns based on Rust language reference:
         https://doc.rust-lang.org/reference/
         """
-        classes = []  # Rust uses structs/enums/traits
-        functions = []
+        classes: list[dict[str, Any]] = []  # Rust uses structs/enums/traits
+        functions: list[dict[str, Any]] = []
 
         # Extract struct definitions
         struct_pattern = r"(?:pub\s+)?struct\s+(\w+)(?:<[^>]+>)?\s*\{"
@@ -907,9 +907,9 @@ class CodeAnalyzer:
 
         return {"classes": classes, "functions": functions, "comments": comments}
 
-    def _parse_rust_parameters(self, params_str: str) -> list[dict]:
+    def _parse_rust_parameters(self, params_str: str) -> list[dict[str, Any]]:
         """Parse Rust parameter string."""
-        params = []
+        params: list[dict[str, Any]] = []
 
         if not params_str.strip():
             return params
@@ -1086,9 +1086,9 @@ class CodeAnalyzer:
 
         return methods
 
-    def _parse_java_parameters(self, params_str: str) -> list[dict]:
+    def _parse_java_parameters(self, params_str: str) -> list[dict[str, Any]]:
         """Parse Java parameter string."""
-        params = []
+        params: list[dict[str, Any]] = []
 
         if not params_str.strip():
             return params
@@ -1208,9 +1208,9 @@ class CodeAnalyzer:
 
         return {"classes": classes, "functions": functions, "comments": comments}
 
-    def _parse_ruby_parameters(self, params_str: str) -> list[dict]:
+    def _parse_ruby_parameters(self, params_str: str) -> list[dict[str, Any]]:
         """Parse Ruby parameter string."""
-        params = []
+        params: list[dict[str, Any]] = []
 
         if not params_str.strip():
             return params
@@ -1359,9 +1359,9 @@ class CodeAnalyzer:
 
         return methods
 
-    def _parse_php_parameters(self, params_str: str) -> list[dict]:
+    def _parse_php_parameters(self, params_str: str) -> list[dict[str, Any]]:
         """Parse PHP parameter string."""
-        params = []
+        params: list[dict[str, Any]] = []
 
         if not params_str.strip():
             return params
